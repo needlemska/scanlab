@@ -16,6 +16,10 @@ final class MeshScanSession: NSObject, ObservableObject {
     @Published var lastArchive: URL?
     @Published var errorText: String?
     @Published var rulerPoints: [SIMD3<Float>] = []
+    /// Габарит всего отсканированного меша в метрах (world-space AABB).
+    @Published var sizeMeters: SIMD3<Float> = .zero
+    /// Предупреждение от ARKit о качестве трекинга.
+    @Published var trackingWarning: String?
 
     /// Расстояние между двумя поставленными точками, метры.
     var rulerDistance: Float? {
@@ -26,6 +30,14 @@ final class MeshScanSession: NSObject, ObservableObject {
     private(set) var anchors: [UUID: ARMeshAnchor] = [:]
     weak var arView: ARView?
     private var lastRecount = Date.distantPast
+
+    /// Кэш локального AABB якоря: пока число вершин не изменилось, вершины не перечитываем.
+    private struct AnchorBox {
+        var count: Int
+        var lo: SIMD3<Float>
+        var hi: SIMD3<Float>
+    }
+    private var anchorBoxes: [UUID: AnchorBox] = [:]
 
     func attach(_ view: ARView) {
         arView = view
@@ -81,9 +93,12 @@ final class MeshScanSession: NSObject, ObservableObject {
     func reset() {
         arView?.session.pause()
         anchors.removeAll()
+        anchorBoxes.removeAll()
         vertexCount = 0
         faceCount = 0
         anchorCount = 0
+        sizeMeters = .zero
+        trackingWarning = nil
         isScanning = false
         lastArchive = nil
         rulerPoints.removeAll()
@@ -181,13 +196,69 @@ final class MeshScanSession: NSObject, ObservableObject {
     private func recount() {
         var vertices = 0
         var faces = 0
+        var lo = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
+        var hi = SIMD3<Float>(repeating: -Float.greatestFiniteMagnitude)
+
         for anchor in anchors.values {
-            vertices += anchor.geometry.vertices.count
+            let count = anchor.geometry.vertices.count
+            vertices += count
             faces += anchor.geometry.faces.count
+            guard count > 0 else { continue }
+            let box = worldBox(for: anchor)
+            lo = simd_min(lo, box.lo)
+            hi = simd_max(hi, box.hi)
         }
+
         vertexCount = vertices
         faceCount = faces
         anchorCount = anchors.count
+        if vertices > 0, lo.x <= hi.x, hi.x.isFinite {
+            sizeMeters = hi - lo
+        } else {
+            sizeMeters = .zero
+        }
+    }
+
+    /// Габарит одного якоря в мировых координатах.
+    private func worldBox(for anchor: ARMeshAnchor) -> (lo: SIMD3<Float>, hi: SIMD3<Float>) {
+        let geometry = anchor.geometry
+        let count = geometry.vertices.count
+
+        var localLo: SIMD3<Float>
+        var localHi: SIMD3<Float>
+        if let cached = anchorBoxes[anchor.identifier], cached.count == count {
+            localLo = cached.lo
+            localHi = cached.hi
+        } else {
+            let base = geometry.vertices.buffer.contents().advanced(by: geometry.vertices.offset)
+            let stride = geometry.vertices.stride
+            var lo = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
+            var hi = SIMD3<Float>(repeating: -Float.greatestFiniteMagnitude)
+            for index in 0..<count {
+                let vertex = base.advanced(by: index * stride)
+                    .assumingMemoryBound(to: Float32.self)
+                let point = SIMD3<Float>(vertex[0], vertex[1], vertex[2])
+                lo = simd_min(lo, point)
+                hi = simd_max(hi, point)
+            }
+            localLo = lo
+            localHi = hi
+            anchorBoxes[anchor.identifier] = AnchorBox(count: count, lo: lo, hi: hi)
+        }
+
+        var worldLo = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
+        var worldHi = SIMD3<Float>(repeating: -Float.greatestFiniteMagnitude)
+        for x in [localLo.x, localHi.x] {
+            for y in [localLo.y, localHi.y] {
+                for z in [localLo.z, localHi.z] {
+                    let corner = anchor.transform * SIMD4<Float>(x, y, z, 1)
+                    let point = SIMD3<Float>(corner.x, corner.y, corner.z)
+                    worldLo = simd_min(worldLo, point)
+                    worldHi = simd_max(worldHi, point)
+                }
+            }
+        }
+        return (worldLo, worldHi)
     }
 }
 
@@ -207,8 +278,37 @@ extension MeshScanSession: ARSessionDelegate {
         Task { @MainActor in
             for identifier in identifiers {
                 self.anchors[identifier] = nil
+                self.anchorBoxes[identifier] = nil
             }
             self.recount()
+        }
+    }
+
+    nonisolated func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+        let warning: String?
+        switch camera.trackingState {
+        case .normal:
+            warning = nil
+        case .notAvailable:
+            warning = "Трекинг недоступен: нужно больше света и деталей"
+        case .limited(let reason):
+            switch reason {
+            case .initializing:
+                warning = "Инициализация — поводите телефоном"
+            case .excessiveMotion:
+                warning = "Слишком быстро — ведите телефон медленнее"
+            case .insufficientFeatures:
+                warning = "Мало деталей: наведите на текстурированную поверхность"
+            case .relocalizing:
+                warning = "Восстановление трекинга…"
+            @unknown default:
+                warning = "Трекинг ограничен"
+            }
+        @unknown default:
+            warning = "Трекинг ограничен"
+        }
+        Task { @MainActor in
+            self.trackingWarning = warning
         }
     }
 

@@ -25,3 +25,52 @@
 2026/10/28 17:26:45 Apps [{Udid:00008130-000A44C01443001C Name:iPhone lenov IsM1:false IsTV:false WiFi:false LastSeen:2026-10-28 17:24:45.5468618 +0300 +0300 LastChecked:2026-10-28 17:24:45.5468618 +0300 +0300 LastError: FailuresCount:0}] map[string][]*model.Installation{}
 2026/10/28 17:26:45 Nothing to do for device &{00008130-000A44C01443001C iPhone lenov false false false 0001-01-01 00:00:00 +0000 UTC 0001-01-01 00:00:00 +0000 UTC  0}
 2026/10/28 17:26:45 Done tick
+2026/10/28 17:27:45 Got timeout, refreshing
+2026/10/28 17:27:45 Timeout stop: false
+2026/10/28 17:27:45 Drain failed?..
+2026/10/28 17:27:45 Will tick
+2026/10/28 17:27:45 Apps [{Udid:00008130-000A44C01443001C Name:iPhone lenov IsM1:false IsTV:false WiFi:false LastSeen:2026-10-28 17:24:45.5468618 +0300 +0300 LastChecked:2026-10-28 17:24:45.5468618 +0300 +0300 LastError: FailuresCount:0}] map[string][]*model.Installation{}
+2026/10/28 17:27:45 Nothing to do for device &{00008130-000A44C01443001C iPhone lenov false false false 0001-01-01 00:00:00 +0000 UTC 0001-01-01 00:00:00 +0000 UTC  0}
+2026/10/28 17:27:45 Done tick
+2026/10/28 17:28:45 Got timeout, refreshing
+2026/10/28 17:28:45 Timeout stop: false
+2026/10/28 17:28:45 Drain failed?..
+2026/10/28 17:28:45 Will tick
+2026/10/28 17:28:45 Apps [{Udid:00008130-000A44C01443001C Name:iPhone lenov IsM1:false IsTV:false WiFi:false LastSeen:2026-10-28 17:24:45.5468618 +0300 +0300 LastChecked:2026-10-28 17:24:45.5468618 +0300 +0300 LastError: FailuresCount:0}] map[string][]*model.Installation{}
+2026/10/28 17:28:45 Nothing to do for device &{00008130-000A44C01443001C iPhone lenov false false false 0001-01-01 00:00:00 +0000 UTC 0001-01-01 00:00:00 +0000 UTC  0}
+2026/10/28 17:28:45 Done tick
+2026/10/28 17:29:45 Got timeout, refreshing
+2026/10/28 17:29:45 Timeout stop: false
+2026/10/28 17:29:45 Drain failed?..
+2026/10/28 17:29:45 Will tick
+2026/10/28 17:29:45 Apps [{Udid:00008130-000A44C01443001C Name:iPhone lenov IsM1:false IsTV:false WiFi:false LastSeen:2026-10-28 17:24:45.5468618 +0300 +0300 LastChecked:2026-10-28 17:24:45.5468618 +0300 +0300 LastError: FailuresCount:0}] map[string][]*model.Installation{}
+2026/10/28 17:29:45 Nothing to do for device &{00008130-000A44C01443001C iPhone lenov false false false 0001-01-01 00:00:00 +0000 UTC 0001-01-01 00:00:00 +0000 UTC  0}
+2026/10/28 17:29:45 Done tick
+2026/10/28 17:30:45 Got timeout, refreshing
+2026/10/28 17:30:45 Timeout stop: false
+2026/10/28 17:30:45 Drain failed?..
+2026/10/28 17:30:45 Will tick
+2026/10/28 17:30:45 Apps [{Udid:00008130-000A44C01443001C Name:iPhone lenov IsM1:false IsTV:false WiFi:false LastSeen:2026-10-28 17:24:45.5468618 +0300 +0300 LastChecked:2026-10-28 17:24:45.5468618 +0300 +0300 LastError: FailuresCount:0}] map[string][]*model.Installation{}
+2026/10/28 17:30:45 Nothing to do for device &{00008130-000A44C01443001C iPhone lenov false false false 0001-01-01 00:00:00 +0000 UTC 0001-01-01 00:00:00 +0000 UTC  0}
+2026/10/28 17:30:45 Done tick
+2026/10/28 17:31:45 Got timeout, refreshing
+2026/10/28 17:31:45 Timeout stop: false
+2026/10/28 17:31:45 Drain failed?..
+2026/10/28 17:31:45 Will tick
+2026/10/28 17:31:45 Apps [{Udid:00008130-000A44C01443001C Name:iPhone lenov IsM1:false IsTV:false WiFi:false LastSeen:2026-10-28 17:24:45.5468618 +0300 +0300 LastChecked:2026-10-28 17:24:45.5468618 +0300 +0300 LastError: FailuresCount:0}] map[string][]*model.Installation{}
+2026/10/28 17:31:45 Nothing to do for device &{00008130-000A44C01443001C iPhone lenov false false false 0001-01-01 00:00:00 +0000 UTC 0001-01-01 00:00:00 +0000 UTC  0}
+2026/10/28 17:31:45 Done tick
+2026/10/28 17:32:45 Got timeout, refreshing
+2026/10/28 17:32:45 Timeout stop: false
+2026/10/28 17:32:45 Drain failed?..
+2026/10/28 17:32:45 Will tick
+2026/10/28 17:32:45 Apps [{Udid:00008130-000A44C01443001C Name:iPhone lenov IsM1:false IsTV:false WiFi:false LastSeen:2026-10-28 17:24:45.5468618 +0300 +0300 LastChecked:2026-10-28 17:24:45.5468618 +0300 +0300 LastError: FailuresCount:0}] map[string][]*model.Installation{}
+2026/10/28 17:32:45 Nothing to do for device &{00008130-000A44C01443001C iPhone lenov false false false 0001-01-01 00:00:00 +0000 UTC 0001-01-01 00:00:00 +0000 UTC  0}
+2026/10/28 17:32:45 Done tick
+2026/10/28 17:33:45 Got timeout, refreshing
+2026/10/28 17:33:45 Timeout stop: false
+2026/10/28 17:33:45 Drain failed?..
+2026/10/28 17:33:45 Will tick
+2026/10/28 17:33:45 Apps [{Udid:00008130-000A44C01443001C Name:iPhone lenov IsM1:false IsTV:false WiFi:false LastSeen:2026-10-28 17:24:45.5468618 +0300 +0300 LastChecked:2026-10-28 17:24:45.5468618 +0300 +0300 LastError: FailuresCount:0}] map[string][]*model.Installation{}
+2026/10/28 17:33:45 Nothing to do for device &{00008130-000A44C01443001C iPhone lenov false false false 0001-01-01 00:00:00 +0000 UTC 0001-01-01 00:00:00 +0000 UTC  0}
+2026/10/28 17:33:45 Done tick

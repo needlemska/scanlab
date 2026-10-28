@@ -12,6 +12,10 @@ struct MeshScanView: View {
 
             VStack(spacing: 12) {
                 statsBar
+                if let warning = scan.trackingWarning {
+                    warningBanner(warning)
+                }
+                sizeLine
                 rulerBar
                 Spacer(minLength: 0)
                 hint
@@ -54,6 +58,41 @@ struct MeshScanView: View {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         return "v\(version) (\(build))"
+    }
+
+    private var sizeLine: some View {
+        Group {
+            if scan.sizeMeters.x > 0 {
+                Text("Габарит: \(mm(scan.sizeMeters.x)) x \(mm(scan.sizeMeters.y)) x \(mm(scan.sizeMeters.z)) мм")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+            } else {
+                Text("Габарит появится, когда LiDAR увидит объект")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func mm(_ meters: Float) -> String {
+        String(format: "%.0f", Double(meters * 1000))
+    }
+
+    private func warningBanner(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(text)
+                .font(.caption)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.black)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.yellow.opacity(0.9), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func chip(_ title: String, _ value: Int) -> some View {

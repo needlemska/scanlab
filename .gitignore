@@ -18,3 +18,4 @@ pc/out/
 # Editors
 .vscode/
 .idea/
+dist/
