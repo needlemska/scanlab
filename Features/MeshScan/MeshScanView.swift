@@ -1,5 +1,6 @@
 import SwiftUI
 import RealityKit
+import UIKit
 
 struct MeshScanView: View {
     @StateObject private var scan = MeshScanSession()
@@ -11,6 +12,7 @@ struct MeshScanView: View {
 
             VStack(spacing: 12) {
                 statsBar
+                rulerBar
                 Spacer(minLength: 0)
                 hint
                 controls
@@ -52,6 +54,32 @@ struct MeshScanView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var rulerBar: some View {
+        HStack(spacing: 10) {
+            if let distance = scan.rulerDistance {
+                Text(String(format: "%.1f мм", Double(distance * 1000)))
+                    .font(.system(.title3, design: .monospaced).bold())
+                    .foregroundStyle(.green)
+                Button {
+                    scan.clearRuler()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+            } else {
+                Text(scan.rulerPoints.isEmpty
+                     ? "Линейка: тапните две точки на объекте"
+                     : "Точка A есть — тапните точку B")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
     }
 
@@ -117,13 +145,41 @@ struct MeshScanView: View {
 struct MeshARContainer: UIViewRepresentable {
     let scan: MeshScanSession
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator(scan: scan)
+    }
+
     func makeUIView(context: Context) -> ARView {
         let view = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
         view.environment.sceneUnderstanding.options = [.occlusion]
         view.debugOptions = [.showSceneUnderstanding]
+        let tap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleTap(_:))
+        )
+        view.addGestureRecognizer(tap)
         scan.attach(view)
         return view
     }
 
     func updateUIView(_ uiView: ARView, context: Context) {}
+
+    /// Жест приходит на главном потоке, но метод сессии помечен @MainActor,
+    /// поэтому прыгаем в него через Task — так не спорим с изоляцией.
+    final class Coordinator: NSObject {
+        private let scan: MeshScanSession
+
+        init(scan: MeshScanSession) {
+            self.scan = scan
+        }
+
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard let view = gesture.view else { return }
+            let location = gesture.location(in: view)
+            let size = view.bounds.size
+            Task { @MainActor in
+                self.scan.addRulerPoint(at: location, in: size)
+            }
+        }
+    }
 }

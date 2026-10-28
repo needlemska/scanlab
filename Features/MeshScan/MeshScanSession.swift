@@ -2,6 +2,7 @@ import Foundation
 import ARKit
 import RealityKit
 import Combine
+import simd
 
 @MainActor
 final class MeshScanSession: NSObject, ObservableObject {
@@ -14,6 +15,13 @@ final class MeshScanSession: NSObject, ObservableObject {
     @Published var status = "Нажмите «Старт» и обойдите объект"
     @Published var lastArchive: URL?
     @Published var errorText: String?
+    @Published var rulerPoints: [SIMD3<Float>] = []
+
+    /// Расстояние между двумя поставленными точками, метры.
+    var rulerDistance: Float? {
+        guard rulerPoints.count == 2 else { return nil }
+        return simd_distance(rulerPoints[0], rulerPoints[1])
+    }
 
     private(set) var anchors: [UUID: ARMeshAnchor] = [:]
     weak var arView: ARView?
@@ -78,7 +86,39 @@ final class MeshScanSession: NSObject, ObservableObject {
         anchorCount = 0
         isScanning = false
         lastArchive = nil
+        rulerPoints.removeAll()
         status = "Сброшено"
+    }
+
+    // MARK: - Линейка
+
+    /// Тап по экрану: ставит точку A и B, третьим тапом начинает заново.
+    func addRulerPoint(at tap: CGPoint, in viewSize: CGSize) {
+        guard let frame = arView?.session.currentFrame else {
+            status = "Кадр AR ещё не готов — подождите секунду"
+            return
+        }
+
+        guard let point = RulerPicker.worldPoint(tap: tap, viewSize: viewSize, frame: frame) else {
+            status = "В этой точке нет глубины — наведите на поверхность объекта"
+            return
+        }
+
+        if rulerPoints.count >= 2 {
+            rulerPoints.removeAll()
+        }
+        rulerPoints.append(point)
+
+        if let distance = rulerDistance {
+            status = String(format: "Расстояние: %.1f мм", distance * 1000)
+        } else {
+            status = "Точка A есть, тапните точку B"
+        }
+    }
+
+    func clearRuler() {
+        rulerPoints.removeAll()
+        status = "Линейка сброшена"
     }
 
     // MARK: - Экспорт
