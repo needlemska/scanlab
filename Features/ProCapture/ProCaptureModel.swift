@@ -26,6 +26,27 @@ final class ProCaptureModel: NSObject, ObservableObject {
     @Published var lockWhiteBalance = true
     @Published var focusLocked = false
 
+    // Поворотный стол: считаем сектора вокруг объекта, чтобы кадры шли равномерно.
+    @Published var turntableMode = false
+    @Published var sectorCount = 24
+    @Published private(set) var yawDegrees: Double = 0
+    @Published private(set) var coveredSectors: Set<Int> = []
+
+    private let tracker = TurntableTracker()
+
+    var sectorsTotal: Int { max(4, sectorCount) }
+
+    var sectorStep: Double { 360.0 / Double(sectorsTotal) }
+
+    var currentSector: Int {
+        let index = Int((yawDegrees / sectorStep).rounded(.down))
+        return min(sectorsTotal - 1, max(0, index))
+    }
+
+    var coverageText: String {
+        "Секторы: \(coveredSectors.count)/\(sectorsTotal)"
+    }
+
     let session = AVCaptureSession()
 
     private let output = AVCapturePhotoOutput()
@@ -61,6 +82,7 @@ final class ProCaptureModel: NSObject, ObservableObject {
     }
 
     func stop() {
+        tracker.stop()
         queue.async { [weak self] in
             guard let self else { return }
             if self.session.isRunning {
@@ -174,6 +196,28 @@ final class ProCaptureModel: NSObject, ObservableObject {
         applySettings()
     }
 
+    // MARK: - Поворотный стол
+
+    func turntableDidChange() {
+        if turntableMode {
+            startTracking()
+        } else {
+            tracker.stop()
+            yawDegrees = 0
+        }
+    }
+
+    private func startTracking() {
+        guard tracker.isAvailable else {
+            turntableMode = false
+            status = "Гироскоп недоступен — режим стола выключен"
+            return
+        }
+        tracker.start { [weak self] yaw in
+            self?.yawDegrees = yaw
+        }
+    }
+
     // MARK: - Съёмка
 
     func startBurst() {
@@ -184,6 +228,8 @@ final class ProCaptureModel: NSObject, ObservableObject {
         fileIndex = 0
         remaining = max(1, burstCount)
         shots.removeAll()
+        coveredSectors.removeAll()
+        if turntableMode { startTracking() }
         isCapturing = true
         shotCount = 0
         status = "Съёмка \(burstCount) кадров…"
@@ -235,7 +281,11 @@ final class ProCaptureModel: NSObject, ObservableObject {
             self.isCapturing = false
             if zipped {
                 self.lastArchive = archive
-                self.status = "Снято \(count) кадров"
+                if self.turntableMode {
+                    self.status = "Снято \(count), секторов \(self.coveredSectors.count)/\(self.sectorsTotal)"
+                } else {
+                    self.status = "Снято \(count) кадров"
+                }
             } else {
                 self.status = "Кадры сняты, архив не собрался"
             }
@@ -349,9 +399,21 @@ extension ProCaptureModel: AVCapturePhotoCaptureDelegate {
             ]
         }
 
+        if turntableMode {
+            shot["yawDeg"] = yawDegrees
+            shot["sector"] = currentSector
+        }
+
         shots.append(shot)
 
         let index = fileIndex
-        ui { self.shotCount = index }
+        let sector = currentSector
+        ui {
+            self.shotCount = index
+            if self.turntableMode {
+                self.coveredSectors.insert(sector)
+                self.status = "Сектор \(sector + 1)/\(self.sectorsTotal) · закрыто \(self.coveredSectors.count)"
+            }
+        }
     }
 }

@@ -22,7 +22,7 @@ targets:
     type: application
     platform: iOS
     sources:
-      # Info.plist не должен попадать в ресурсы — иначе "Multiple commands produce Info.plist".
+      # Info.plist РЅРµ РґРѕР»Р¶РµРЅ РїРѕРїР°РґР°С‚СЊ РІ СЂРµСЃСѓСЂСЃС‹ вЂ” РёРЅР°С‡Рµ "Multiple commands produce Info.plist".
       - path: App
         excludes:
           - "Info.plist"
@@ -35,8 +35,8 @@ targets:
         INFOPLIST_FILE: App/Info.plist
         GENERATE_INFOPLIST_FILE: "NO"
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "0.3.0"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.4.0"
+        CURRENT_PROJECT_VERSION: "4"
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"

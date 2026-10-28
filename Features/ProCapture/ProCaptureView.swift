@@ -57,6 +57,23 @@ struct ProCaptureView: View {
 
     private var panel: some View {
         VStack(spacing: 12) {
+            Toggle("Поворотный стол", isOn: $model.turntableMode)
+                .onChange(of: model.turntableMode) { _, _ in model.turntableDidChange() }
+
+            if model.turntableMode {
+                HStack(spacing: 8) {
+                    Text(model.coverageText)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Spacer(minLength: 0)
+                    Text("\(Int(model.yawDegrees.rounded()))° · сектор \(model.currentSector + 1)/\(model.sectorsTotal)")
+                        .font(.caption)
+                        .foregroundStyle(.yellow)
+                }
+                Stepper("Секторов: \(model.sectorCount)", value: $model.sectorCount, in: 8...72, step: 4)
+                    .font(.caption)
+            }
+
             Toggle("Ручная экспозиция", isOn: $model.manualExposure)
                 .onChange(of: model.manualExposure) { _, _ in model.applySettings() }
 
