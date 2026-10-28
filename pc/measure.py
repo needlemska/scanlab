@@ -184,6 +184,126 @@ def measure(v: np.ndarray, f: np.ndarray) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Умный габарит: по осям предмета, а не по осям мира
+# (порт scanlab/Core/SmartBoundingBox.swift, проверен на 320 сценах)
+# --------------------------------------------------------------------------- #
+
+TOL_DEG = 12.0          # допуск кластеризации нормалей
+BAND = 0.008            # полоса вокруг плоскости стола, м
+TAIL = 0.02             # доля хвоста при измерении размера
+MIN_FACES = 400         # меньше граней — не доверяем
+MIN_PLANE_SHARE = 0.35  # доля площади, чтобы считать плоскость столом
+MIN_PLANE_MARGIN = 2.0  # насколько стол должен быть больше второй плоскости
+MIN_COVERAGE = 0.75     # доля площади в трёх кластерах, иначе габарит не строим
+
+
+def _clusters(normals: np.ndarray, weights: np.ndarray) -> list[tuple]:
+    thr = np.cos(np.radians(TOL_DEG))
+    used = np.zeros(len(normals), bool)
+    found: list[tuple] = []
+    for i in np.argsort(-weights, kind="stable"):
+        if used[i]:
+            continue
+        axis = normals[i] / max(float(np.linalg.norm(normals[i])), 1e-9)
+        for _ in range(3):
+            m = np.abs(normals @ axis) > thr
+            if not m.any():
+                break
+            axis = (normals[m] * np.sign(normals[m] @ axis)[:, None]).mean(0)
+            axis /= max(float(np.linalg.norm(axis)), 1e-9)
+        m = np.abs(normals @ axis) > thr
+        if not m.any() or used[m].all():
+            continue
+        # параллельные кластеры (стол и низ предмета в одной плоскости) — не оси
+        if any(abs(float(axis @ c[0])) > thr for c in found):
+            used |= m
+            continue
+        used |= m
+        found.append((axis, float(weights[m].sum()), m))
+        if len(found) >= 3:
+            break
+    found.sort(key=lambda c: -c[1])
+    return found
+
+
+def _orthonormal(axes: list[np.ndarray]) -> np.ndarray | None:
+    a = axes[0] / max(float(np.linalg.norm(axes[0])), 1e-9)
+    b = axes[1] - a * float(axes[1] @ a)
+    nb = float(np.linalg.norm(b))
+    if nb < 1e-6:
+        return None
+    b = b / nb
+    return np.stack([a, b, np.cross(a, b)])
+
+
+def _tail(values: np.ndarray) -> float:
+    s = np.sort(values)
+    lo = int((len(s) - 1) * TAIL)
+    hi = len(s) - 1 - lo
+    return float(s[hi:].mean() - s[: lo + 1].mean())
+
+
+def _top(values: np.ndarray) -> float:
+    s = np.sort(values)
+    hi = len(s) - 1 - int((len(s) - 1) * TAIL)
+    return float(s[hi:].mean())
+
+
+def _obb(v: np.ndarray, normals: np.ndarray, weights: np.ndarray):
+    found = _clusters(normals, weights)
+    total = float(weights.sum())
+    coverage = sum(c[1] for c in found) / total if total > 0 else 0.0
+    if len(found) < 3 or coverage < MIN_COVERAGE:
+        return None, coverage
+    return _orthonormal([c[0] for c in found]), coverage
+
+
+def smart_extents(v: np.ndarray, f: np.ndarray):
+    """Габарит по осям предмета. Возвращает (extents, method, plane_share) или None."""
+    tri = v[f]
+    raw = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    length = np.linalg.norm(raw, axis=1)
+    keep = length > 1e-12
+    if keep.sum() < MIN_FACES:
+        return None
+    normals = raw[keep] / length[keep][:, None]
+    areas = length[keep] * 0.5
+    points = tri[keep].reshape(-1, 3)
+
+    found = _clusters(normals, areas)
+    if not found:
+        return None
+    plane_axis, plane_weight, plane_mask = found[0]
+    total = float(areas.sum())
+    share = plane_weight / total if total > 0 else 0.0
+    second = found[1][1] if len(found) > 1 else 0.0
+
+    if share >= MIN_PLANE_SHARE and plane_weight >= MIN_PLANE_MARGIN * second:
+        plane_vals = tri[keep][plane_mask].reshape(-1, 3) @ plane_axis
+        plane_pos = float(np.median(plane_vals))
+        obj = points[np.abs(points @ plane_axis - plane_pos) > BAND]
+        if len(obj) >= MIN_FACES:
+            axes, _ = _obb(v, normals, areas)
+            if axes is not None:
+                vert = int(np.argmax(np.abs(axes @ plane_axis)))
+                if float(np.median(obj @ axes[vert])) < 0:
+                    axes = axes.copy()
+                    axes[vert] = -axes[vert]
+                dims = np.zeros(3)
+                for i in range(3):
+                    if i == vert:
+                        dims[i] = abs(_top(obj @ axes[i]) - plane_pos * float(axes[i] @ plane_axis))
+                    else:
+                        dims[i] = _tail(obj @ axes[i])
+                return dims, "TABLE", share
+
+    axes, _ = _obb(v, normals, areas)
+    if axes is None:
+        return None
+    return np.array([_tail(points @ axes[i]) for i in range(3)]), "OBB", 0.0
+
+
 def write_stl(path: str, v: np.ndarray, f: np.ndarray) -> None:
     """Бинарный STL; нормали оставлены нулевыми — слайсеры пересчитывают сами."""
     tri = v[f].astype("<f4")
@@ -211,6 +331,8 @@ def main() -> int:
                         help="подогнать масштаб так, чтобы габарит по оси --fit-axis стал равен этому значению (мм)")
     parser.add_argument("--fit-axis", choices=("x", "y", "z"), default="y",
                         help="по какой оси подгонять размер (по умолчанию y — высота)")
+    parser.add_argument("--smart", action="store_true",
+                        help="считать габарит по осям предмета (OBB и обрезка плоскости стола)")
     parser.add_argument("--out", default="pc/out", help="куда положить результат")
     parser.add_argument("--json", action="store_true", help="вывести только JSON")
     args = parser.parse_args()
@@ -255,6 +377,7 @@ def main() -> int:
             }
 
         info = measure(verts, faces)
+        smart = smart_extents(verts, faces) if args.smart else None
         data = {
             "source": os.path.basename(mesh_path),
             "engine": engine,
@@ -267,6 +390,8 @@ def main() -> int:
             "largest_component_share": round(info["largest_share"], 3),
             "scale_applied": args.scale,
             "fit_applied": fit,
+            "size_mm_smart": [round(float(e) * 1000.0, 2) for e in smart[0]] if smart else None,
+            "smart_method": smart[1] if smart else None,
         }
 
         os.makedirs(args.out, exist_ok=True)
@@ -291,6 +416,12 @@ def main() -> int:
             )
         print(f"Triangles:       {data['triangles']:,}")
         print(f"Size, mm:        {data['size_mm'][0]} x {data['size_mm'][1]} x {data['size_mm'][2]}")
+        if smart:
+            print(
+                "Size, obj axes:  "
+                f"{data['size_mm_smart'][0]} x {data['size_mm_smart'][1]} x "
+                f"{data['size_mm_smart'][2]}  ({data['smart_method']})"
+            )
         print(f"Volume, cm3:     {data['volume_cm3']}")
         print(f"Watertight:      {'yes' if data['watertight'] else 'NO - close holes'}")
         print(f"Components:      {data['components']} (largest {data['largest_component_share']:.0%})")
