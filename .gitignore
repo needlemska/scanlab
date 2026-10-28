@@ -20,3 +20,4 @@ pc/out/
 .idea/
 dist/
 ScanLab-unsigned.ipa
+*.log
