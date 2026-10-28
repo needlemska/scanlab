@@ -22,7 +22,10 @@ targets:
     type: application
     platform: iOS
     sources:
+      # Info.plist не должен попадать в ресурсы — иначе "Multiple commands produce Info.plist".
       - path: App
+        excludes:
+          - "Info.plist"
       - path: Features
       - path: Core
     settings:

@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UIKit
 
 struct ProCaptureView: View {
     @StateObject private var model = ProCaptureModel()
