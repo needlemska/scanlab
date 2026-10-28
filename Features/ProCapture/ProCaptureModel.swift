@@ -312,8 +312,9 @@ extension ProCaptureModel: AVCapturePhotoCaptureDelegate {
             "timestamp": ISO8601DateFormatter().string(from: Date())
         ]
 
-        if let depth = photo.depthData,
-           let converted = depth.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32) {
+        if let depth = photo.depthData {
+            // В SDK iOS 26 converting(toDepthDataType:) возвращает AVDepthData, а не опционал.
+            let converted = depth.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
             let map = converted.depthDataMap
             CVPixelBufferLockBaseAddress(map, .readOnly)
             defer { CVPixelBufferUnlockBaseAddress(map, .readOnly) }
