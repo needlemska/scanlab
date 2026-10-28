@@ -249,7 +249,7 @@ final class ProCaptureModel: NSObject, ObservableObject {
             "burstInterval": burstInterval,
             "manualExposure": manualExposure,
             "shutterDenominator": shutterDenominator,
-            "iso": iso,
+            "iso": Double(iso),
             "note": "img_%03d.jpg — фото; img_%03d_depth.f32 — сырая глубина LiDAR (Float32, построчно, ширина×высота из shots[].depthSize)"
         ]
         if let data = try? JSONSerialization.data(withJSONObject: meta,
@@ -333,12 +333,12 @@ extension ProCaptureModel: AVCapturePhotoCaptureDelegate {
             let matrix = calibration.intrinsicMatrix
             let reference = calibration.intrinsicMatrixReferenceDimensions
             shot["intrinsics"] = [
-                "fx": matrix.columns.0.x,
-                "fy": matrix.columns.1.y,
-                "cx": matrix.columns.2.x,
-                "cy": matrix.columns.2.y,
-                "refWidth": reference.width,
-                "refHeight": reference.height
+                "fx": Double(matrix.columns.0.x),
+                "fy": Double(matrix.columns.1.y),
+                "cx": Double(matrix.columns.2.x),
+                "cy": Double(matrix.columns.2.y),
+                "refWidth": Double(reference.width),
+                "refHeight": Double(reference.height)
             ]
         }
 

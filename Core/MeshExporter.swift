@@ -103,9 +103,9 @@ enum MeshExporter {
             "vertices": stats.vertices,
             "faces": stats.faces,
             "anchors": stats.anchors,
-            "boundsMin": [stats.min.x, stats.min.y, stats.min.z],
-            "boundsMax": [stats.max.x, stats.max.y, stats.max.z],
-            "sizeMeters": [stats.size.x, stats.size.y, stats.size.z],
+            "boundsMin": [Double(stats.min.x), Double(stats.min.y), Double(stats.min.z)],
+            "boundsMax": [Double(stats.max.x), Double(stats.max.y), Double(stats.max.z)],
+            "sizeMeters": [Double(stats.size.x), Double(stats.size.y), Double(stats.size.z)],
             "note": "OBJ без текстур. Для печати: закрыть дыры, проверить manifold, масштаб уже в метрах."
         ]
         for (key, value) in extra { meta[key] = value }
