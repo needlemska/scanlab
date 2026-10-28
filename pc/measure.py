@@ -207,6 +207,10 @@ def main() -> int:
                         help="множитель до перевода в мм (по умолчанию 1: модель уже в метрах)")
     parser.add_argument("--units", choices=("m", "mm"), default="m",
                         help="в чём координаты модели: m (ScanLab, RealityCapture) или mm (Blender/Fusion)")
+    parser.add_argument("--fit-mm", type=float, default=0.0,
+                        help="подогнать масштаб так, чтобы габарит по оси --fit-axis стал равен этому значению (мм)")
+    parser.add_argument("--fit-axis", choices=("x", "y", "z"), default="y",
+                        help="по какой оси подгонять размер (по умолчанию y — высота)")
     parser.add_argument("--out", default="pc/out", help="куда положить результат")
     parser.add_argument("--json", action="store_true", help="вывести только JSON")
     args = parser.parse_args()
@@ -234,6 +238,22 @@ def main() -> int:
         verts, faces = clean(verts, faces)
         verts = verts * args.scale
 
+        fit = None
+        if args.fit_mm > 0:
+            axis = "xyz".index(args.fit_axis)
+            used = np.unique(faces)
+            span = float(verts[used, axis].max() - verts[used, axis].min()) if used.size else 0.0
+            if span <= 0:
+                raise SystemExit(f"Cannot fit: zero extent along {args.fit_axis}.")
+            factor = (args.fit_mm / 1000.0) / span
+            verts = verts * factor
+            fit = {
+                "axis": args.fit_axis,
+                "target_mm": args.fit_mm,
+                "before_mm": round(span * 1000.0, 2),
+                "factor": round(factor, 6),
+            }
+
         info = measure(verts, faces)
         data = {
             "source": os.path.basename(mesh_path),
@@ -246,6 +266,7 @@ def main() -> int:
             "components": info["components"],
             "largest_component_share": round(info["largest_share"], 3),
             "scale_applied": args.scale,
+            "fit_applied": fit,
         }
 
         os.makedirs(args.out, exist_ok=True)
@@ -263,6 +284,11 @@ def main() -> int:
             return 0
 
         print(f"Source:          {data['source']} ({engine})")
+        if fit:
+            print(
+                f"Fit:             {fit['axis']} = {fit['before_mm']} mm -> "
+                f"{fit['target_mm']} mm (x{fit['factor']:.4f})"
+            )
         print(f"Triangles:       {data['triangles']:,}")
         print(f"Size, mm:        {data['size_mm'][0]} x {data['size_mm'][1]} x {data['size_mm'][2]}")
         print(f"Volume, cm3:     {data['volume_cm3']}")
