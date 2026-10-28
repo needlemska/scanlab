@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Камера и LiDAR нужны для 3D-сканирования и фотограмметрии.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Локальная сеть нужна, чтобы скачивать сканы с телефона на компьютер по Wi-Fi.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Сохранение результатов сканирования в медиатеку.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

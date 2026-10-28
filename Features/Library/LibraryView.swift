@@ -10,10 +10,15 @@ struct LibraryView: View {
     @State private var items: [ScanRecord] = []
     @State private var shareItem: ShareItem?
     @State private var isWorking = false
+    @StateObject private var wifi = FileServerModel()
 
     var body: some View {
         NavigationStack {
             List {
+                if wifi.running || wifi.message != nil {
+                    wifiRow
+                }
+
                 if items.isEmpty {
                     ContentUnavailableView(
                         "Пока пусто",
@@ -30,6 +35,13 @@ struct LibraryView: View {
             .listStyle(.plain)
             .navigationTitle("Сканы")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        wifi.toggle()
+                    } label: {
+                        Image(systemName: wifi.running ? "wifi" : "wifi.slash")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         reload()
@@ -45,6 +57,40 @@ struct LibraryView: View {
                     .presentationDetents([.medium, .large])
             }
         }
+    }
+
+    @ViewBuilder
+    private var wifiRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: wifi.running ? "wifi" : "wifi.slash")
+                    .foregroundStyle(wifi.running ? .green : .secondary)
+                Text(wifi.running ? "Выгрузка по Wi-Fi включена" : "Выгрузка по Wi-Fi")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if wifi.running {
+                    Button("Выключить") { wifi.toggle() }
+                        .font(.caption)
+                        .buttonStyle(.borderless)
+                }
+            }
+
+            if let address = wifi.address {
+                Text(address)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                Text("Откройте этот адрес на компьютере: каждый скан скачается ZIP-архивом.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let message = wifi.message {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private func row(for item: ScanRecord) -> some View {
