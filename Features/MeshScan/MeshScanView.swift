@@ -39,8 +39,21 @@ struct MeshScanView: View {
             chip("вершин", scan.vertexCount)
             chip("полигонов", scan.faceCount)
             chip("кусков", scan.anchorCount)
+            Spacer(minLength: 0)
+            Text(appVersion)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        return "v\(version) (\(build))"
     }
 
     private func chip(_ title: String, _ value: Int) -> some View {
