@@ -39,6 +39,14 @@ git push -u origin main
 внизу страницы сборки артефакт **`ScanLab-unsigned-ipa`**. Скачать, распаковать →
 `ScanLab-unsigned.ipa`.
 
+**Если страница артефактов не открывается** (у части провайдеров блокируются
+`pipelines.githubusercontent.com` и `objects.githubusercontent.com`) — рядом с `main`
+появится ветка `builds` с готовым IPA, а забрать его можно git-ом:
+
+```powershell
+.\get-ipa.ps1
+```
+
 Если сборка упала — пришлите лог, правим и пушим снова. Проект генерируется
 XcodeGen из `project.yml`, так что `.xcodeproj` в репозитории не нужен.
 

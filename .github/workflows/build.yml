@@ -13,6 +13,8 @@ jobs:
   build:
     runs-on: macos-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -58,3 +60,19 @@ jobs:
           name: ScanLab-unsigned-ipa
           path: ScanLab-unsigned.ipa
           retention-days: 30
+
+      # На части сетей (в т.ч. у владельца проекта) хосты
+      # pipelines/objects.githubusercontent.com недоступны, поэтому артефакт
+      # с GitHub скачать нельзя. Дублируем IPA в ветку builds — git ходит
+      # через github.com:443, который доступен.
+      - name: Publish IPA to "builds" branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "ScanLab CI"
+          git config user.email "ci@scanlab.local"
+          printf 'run=%s\ncommit=%s\nbuilt=%s\n' "${{ github.run_number }}" "${{ github.sha }}" "$(date -u +%FT%TZ)" > BUILD.txt
+          shasum -a 256 ScanLab-unsigned.ipa | awk '{print $1}' > ScanLab-unsigned.ipa.sha256
+          git checkout -B builds
+          git add -f BUILD.txt ScanLab-unsigned.ipa ScanLab-unsigned.ipa.sha256
+          git commit -m "build #${{ github.run_number }} (${{ github.sha }})"
+          git push -f origin builds
