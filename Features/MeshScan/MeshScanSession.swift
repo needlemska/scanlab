@@ -20,6 +20,11 @@ final class MeshScanSession: NSObject, ObservableObject {
     @Published var sizeMeters: SIMD3<Float> = .zero
     /// Предупреждение от ARKit о качестве трекинга.
     @Published var trackingWarning: String?
+    /// Габарит по осям предмета (умный), например 100.2 × 60.1 × 40.3 мм.
+    @Published var smartSize: SIMD3<Float>?
+    /// "TABLE" — считали от плоскости стола, "OBB" — по осям предмета, nil — не удалось.
+    @Published var smartMethod: String?
+    @Published var smartBusy = false
 
     /// Расстояние между двумя поставленными точками, метры.
     var rulerDistance: Float? {
@@ -98,6 +103,9 @@ final class MeshScanSession: NSObject, ObservableObject {
         faceCount = 0
         anchorCount = 0
         sizeMeters = .zero
+        smartSize = nil
+        smartMethod = nil
+        smartBusy = false
         trackingWarning = nil
         isScanning = false
         lastArchive = nil
@@ -134,6 +142,40 @@ final class MeshScanSession: NSObject, ObservableObject {
     func clearRuler() {
         rulerPoints.removeAll()
         status = "Линейка сброшена"
+    }
+
+    // MARK: - Умный габарит
+
+    /// Габарит по осям предмета, а не по осям мира.
+    /// Тяжелее, чем AABB (десятки тысяч граней), поэтому не на каждом кадре.
+    func computeSmartBox() {
+        guard !anchors.isEmpty else {
+            status = "Меш пуст: сначала просканируйте объект"
+            return
+        }
+        guard !smartBusy else { return }
+        smartBusy = true
+        status = "Считаю габарит по осям предмета…"
+        let snapshot = Array(anchors.values)
+
+        Task.detached(priority: .userInitiated) {
+            let result = SmartBox.measure(anchors: snapshot)
+            await MainActor.run {
+                self.smartBusy = false
+                if let result = result {
+                    self.smartSize = result.size
+                    self.smartMethod = result.method
+                    self.status = String(
+                        format: "Габарит: %.1f × %.1f × %.1f мм",
+                        result.size.x * 1000, result.size.y * 1000, result.size.z * 1000
+                    )
+                } else {
+                    self.smartSize = nil
+                    self.smartMethod = nil
+                    self.status = "Не хватило данных: обойдите объект с трёх сторон"
+                }
+            }
+        }
     }
 
     // MARK: - Экспорт

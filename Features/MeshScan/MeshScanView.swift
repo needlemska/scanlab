@@ -16,6 +16,7 @@ struct MeshScanView: View {
                     warningBanner(warning)
                 }
                 sizeLine
+                smartLine
                 rulerBar
                 Spacer(minLength: 0)
                 hint
@@ -80,6 +81,43 @@ struct MeshScanView: View {
 
     private func mm(_ meters: Float) -> String {
         String(format: "%.0f", Double(meters * 1000))
+    }
+
+    /// Габарит по осям предмета: AABB зависит от того, как повёрнута коробка,
+    /// а этот считается от плоскостей самого предмета.
+    private var smartLine: some View {
+        HStack(spacing: 8) {
+            if let size = scan.smartSize {
+                Text("Предмет: \(mm(size.x)) x \(mm(size.y)) x \(mm(size.z)) мм")
+                    .font(.system(.caption, design: .monospaced).bold())
+                    .foregroundStyle(.green)
+                Text(scan.smartMethod == "TABLE" ? "от стола" : "по осям")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.6))
+            } else {
+                Text("Предмет: нажмите «Умный», чтобы померить по осям предмета")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            Spacer(minLength: 0)
+            Button {
+                scan.computeSmartBox()
+            } label: {
+                if scan.smartBusy {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                } else {
+                    Image(systemName: "cube.transparent")
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+            }
+            .disabled(scan.smartBusy || scan.anchorCount == 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func warningBanner(_ text: String) -> some View {
