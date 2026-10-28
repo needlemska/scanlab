@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Xcode / generated
+*.xcodeproj/
+*.xcworkspace/
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+pc/out/
+
+# Editors
+.vscode/
+.idea/
