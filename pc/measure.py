@@ -44,17 +44,20 @@ MESH_EXT = (".obj", ".ply", ".stl", ".glb", ".gltf")
 # Поиск файла
 # --------------------------------------------------------------------------- #
 
-def find_mesh(root: str) -> str:
+def find_mesh(root: str, exclude: str | None = None) -> str:
+    skip = os.path.abspath(exclude) if exclude else None
     candidates = []
     for directory, _, files in os.walk(root):
+        if skip and os.path.abspath(directory).startswith(skip):
+            continue
         for name in files:
             if name.lower().endswith(MESH_EXT):
                 path = os.path.join(directory, name)
                 candidates.append((os.path.getsize(path), path))
     if not candidates:
         raise SystemExit(
-            f"В {root} нет меша ({', '.join(MESH_EXT)}).\n"
-            "ZIP с кадрами — это набор для фотограмметрии, сначала соберите модель (см. PIPELINE.md)."
+            f"No mesh ({', '.join(MESH_EXT)}) found in {root}.\n"
+            "A ZIP with frames is a photogrammetry set - build the model first (see PIPELINE.md)."
         )
     candidates.sort(reverse=True)
     return candidates[0][1]
@@ -80,7 +83,7 @@ def read_obj(path: str) -> tuple[np.ndarray, np.ndarray]:
                     faces.append((raw[0], raw[i], raw[i + 1]))
 
     if not verts or not faces:
-        raise SystemExit(f"В OBJ нет геометрии: {path}")
+        raise SystemExit(f"OBJ has no geometry: {path}")
 
     v = np.asarray(verts, dtype=np.float64)
     f = np.asarray(faces, dtype=np.int64)
@@ -96,7 +99,7 @@ def load(path: str) -> tuple[np.ndarray, np.ndarray, str]:
             path, enable_post_processing=ext in (".obj", ".ply")
         )
         if mesh.is_empty():
-            raise SystemExit(f"Пустой или нечитаемый меш: {path}")
+            raise SystemExit(f"Empty or unreadable mesh: {path}")
         return (
             np.asarray(mesh.vertices, dtype=np.float64),
             np.asarray(mesh.triangles, dtype=np.int64),
@@ -105,7 +108,7 @@ def load(path: str) -> tuple[np.ndarray, np.ndarray, str]:
 
     if ext != ".obj":
         raise SystemExit(
-            f"{ext} без open3d не читается — установите open3d:\n"
+            f"{ext} needs open3d to read:\n"
             "    pip install -r requirements.txt"
         )
     v, f = read_obj(path)
@@ -122,7 +125,7 @@ def clean(v: np.ndarray, f: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     f = f[keep]
 
     if len(f) == 0:
-        raise SystemExit("После чистки не осталось ни одного треугольника.")
+        raise SystemExit("Nothing left after cleaning: no valid triangles.")
 
     _, first = np.unique(np.sort(f, axis=1), axis=0, return_index=True)
     f = f[np.sort(first)]
@@ -202,22 +205,31 @@ def main() -> int:
     parser.add_argument("input", help="ZIP, папка, .obj/.ply/.stl")
     parser.add_argument("--scale", type=float, default=1.0,
                         help="множитель до перевода в мм (по умолчанию 1: модель уже в метрах)")
+    parser.add_argument("--units", choices=("m", "mm"), default="m",
+                        help="в чём координаты модели: m (ScanLab, RealityCapture) или mm (Blender/Fusion)")
     parser.add_argument("--out", default="pc/out", help="куда положить результат")
     parser.add_argument("--json", action="store_true", help="вывести только JSON")
     args = parser.parse_args()
+    if args.units == "mm":
+        args.scale *= 0.001
 
     tmp = None
     source = args.input
+    mesh_path: str | None = None
+
     if os.path.isfile(source) and source.lower().endswith(".zip"):
         tmp = tempfile.mkdtemp(prefix="scanlab-")
         with zipfile.ZipFile(source) as archive:
             archive.extractall(tmp)
         source = tmp
+    elif os.path.isfile(source) and source.lower().endswith(MESH_EXT):
+        mesh_path = os.path.abspath(source)
     elif os.path.isfile(source):
         source = os.path.dirname(os.path.abspath(source)) or "."
 
     try:
-        mesh_path = find_mesh(source)
+        if mesh_path is None:
+            mesh_path = find_mesh(source, exclude=args.out)
         verts, faces, engine = load(mesh_path)
         verts, faces = clean(verts, faces)
         verts = verts * args.scale
@@ -250,21 +262,21 @@ def main() -> int:
             print(json.dumps(data, ensure_ascii=False, indent=2))
             return 0
 
-        print(f"Источник:        {data['source']} ({engine})")
-        print(f"Треугольников:   {data['triangles']:,}")
-        print(f"Габарит, мм:     {data['size_mm'][0]} x {data['size_mm'][1]} x {data['size_mm'][2]}")
-        print(f"Объём, см³:      {data['volume_cm3']}")
-        print(f"Watertight:      {'да' if data['watertight'] else 'НЕТ — закрыть дыры'}")
-        print(f"Компонент:       {data['components']} (крупнейшая {data['largest_component_share']:.0%})")
-        print(f"STL в мм:        {data['stl']}")
-        print(f"Отчёт:           {os.path.abspath(json_path)}")
+        print(f"Source:          {data['source']} ({engine})")
+        print(f"Triangles:       {data['triangles']:,}")
+        print(f"Size, mm:        {data['size_mm'][0]} x {data['size_mm'][1]} x {data['size_mm'][2]}")
+        print(f"Volume, cm3:     {data['volume_cm3']}")
+        print(f"Watertight:      {'yes' if data['watertight'] else 'NO - close holes'}")
+        print(f"Components:      {data['components']} (largest {data['largest_component_share']:.0%})")
+        print(f"STL (mm):        {data['stl']}")
+        print(f"Report:          {os.path.abspath(json_path)}")
 
         if max(data["size_mm"]) < 0.1 or max(data["size_mm"]) > 10000:
-            print("\nВНИМАНИЕ: габарит не похож на реальный. Проверьте --scale и масштабную метку.")
+            print("\nWARNING: size looks unreal. Check --units/--scale and the scale marker.")
         if data["components"] > 1 and data["largest_component_share"] < 0.9:
-            print("ВНИМАНИЕ: модель развалилась на куски — обычно мало перекрытия кадров.")
+            print("WARNING: model broke into pieces - usually too little frame overlap.")
         if not data["watertight"]:
-            print("ВНИМАНИЕ: не watertight. В MeshLab: Filters → Remeshing → Close Holes.")
+            print("WARNING: not watertight. MeshLab: Filters -> Remeshing -> Close Holes.")
         return 0
     finally:
         if tmp:
