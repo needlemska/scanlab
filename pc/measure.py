@@ -20,7 +20,14 @@ import tempfile
 import zipfile
 
 import numpy as np
-import open3d as o3d
+
+try:
+    import open3d as o3d
+except ImportError:  # понятная подсказка вместо голого traceback
+    raise SystemExit(
+        "Нужен open3d: pip install -r pc/requirements.txt\n"
+        "Ставьте на ПК с NVIDIA (там же, где RealityCapture)."
+    )
 
 MESH_EXT = (".obj", ".ply", ".stl", ".glb", ".gltf")
 READERS = {
