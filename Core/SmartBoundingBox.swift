@@ -251,7 +251,8 @@ enum SmartBox {
             let base = source.buffer.contents().advanced(by: source.offset)
             let vertexCount = source.count
             let vertexStride = source.stride
-            let indexBase = geometry.faces.buffer.contents().advanced(by: geometry.faces.offset)
+            // ARGeometryElement не имеет offset (в отличие от ARGeometrySource) — индексы начинаются с нуля буфера.
+            let indexBase = geometry.faces.buffer.contents()
             let bytesPerIndex = geometry.faces.bytesPerIndex
             let faceCount = geometry.faces.count
 
