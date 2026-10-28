@@ -67,9 +67,7 @@ struct ProCaptureView: View {
                         .foregroundStyle(.white.opacity(0.7))
                         .frame(width: 34, alignment: .leading)
                     Slider(value: $model.iso, in: model.safeISORange)
-                        .onEditingChanged { editing in
-                            if !editing { model.applySettings() }
-                        }
+                        .onChange(of: model.iso) { _, _ in model.applySettings() }
                     Text("\(Int(model.iso))")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.white)

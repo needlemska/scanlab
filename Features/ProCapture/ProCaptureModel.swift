@@ -222,12 +222,18 @@ final class ProCaptureModel: NSObject, ObservableObject {
 
         let archive = Paths.zipURL(for: folder)
         try? FileManager.default.removeItem(at: archive)
-        let zipResult = try? ZipWriter.write(directory: folder, to: archive)
+        var zipped = true
+        do {
+            try ZipWriter.write(directory: folder, to: archive)
+        } catch {
+            zipped = false
+            print("ScanLab: zip failed — \(error)")
+        }
 
         let count = fileIndex
         ui {
             self.isCapturing = false
-            if zipResult != nil {
+            if zipped {
                 self.lastArchive = archive
                 self.status = "Снято \(count) кадров"
             } else {
@@ -307,7 +313,7 @@ extension ProCaptureModel: AVCapturePhotoCaptureDelegate {
         ]
 
         if let depth = photo.depthData,
-           let converted = try? depth.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32) {
+           let converted = depth.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32) {
             let map = converted.depthDataMap
             CVPixelBufferLockBaseAddress(map, .readOnly)
             defer { CVPixelBufferUnlockBaseAddress(map, .readOnly) }

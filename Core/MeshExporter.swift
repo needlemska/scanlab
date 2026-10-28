@@ -63,14 +63,13 @@ enum MeshExporter {
             }
 
             let faces = geometry.faces
-            let perFace = faces.indexCountPerPrimitive
             let faceCount = faces.count
 
+            // ARGeometryElement.subscript(index) -> [Int32]: одна грань на индекс.
             for faceIndex in 0..<faceCount {
                 var line = "f"
-                for corner in 0..<perFace {
-                    let raw = Int(faces[faceIndex * perFace + corner])
-                    line += " \(raw + 1 + indexOffset)"
+                for raw in faces[faceIndex] {
+                    line += " \(Int(raw) + 1 + indexOffset)"
                 }
                 sink.write(line + "\n")
             }

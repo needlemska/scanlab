@@ -155,6 +155,9 @@ enum ZipWriter {
 private extension Data {
     mutating func appendLE<T: FixedWidthInteger>(_ value: T) {
         var little = value.littleEndian
-        withUnsafeBytes(of: &little) { append(contentsOf: $0) }
+        // Data сам определяет withUnsafeBytes, поэтому модуль Swift указан явно.
+        Swift.withUnsafeBytes(of: &little) { raw in
+            append(contentsOf: raw)
+        }
     }
 }
