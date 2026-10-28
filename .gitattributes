@@ -1,0 +1,6 @@
+# Единые переводы строк: bash-скрипты workflow не переносят CRLF.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ipa binary
