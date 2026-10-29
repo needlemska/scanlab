@@ -39,9 +39,10 @@ final class ProCaptureModel: NSObject, ObservableObject {
     var sectorStep: Double { 360.0 / Double(sectorsTotal) }
 
     var currentSector: Int {
-        // yawDegrees накапливается и может уйти за 360° в любую сторону.
+        // Угол накапливается и уходит за ±360°. Отрицательное значение — это
+        // поворот назад: он не «последний сектор», а ещё нулевой.
         let wrapped = yawDegrees.truncatingRemainder(dividingBy: 360)
-        let positive = wrapped < 0 ? wrapped + 360 : wrapped
+        let positive = wrapped < 0 ? 0 : wrapped
         let index = Int((positive / sectorStep).rounded(.down))
         return min(sectorsTotal - 1, max(0, index))
     }
@@ -259,6 +260,14 @@ final class ProCaptureModel: NSObject, ObservableObject {
         }
 
         session.commitConfiguration()
+
+        // Поддержка глубины зависит от уже применённого формата, поэтому
+        // окончательно включаем её после коммита — иначе флаг молча не встанет.
+        if output.isDepthDataDeliverySupported, !output.isDepthDataDeliveryEnabled {
+            session.beginConfiguration()
+            output.isDepthDataDeliveryEnabled = true
+            session.commitConfiguration()
+        }
 
         let depthOn = output.isDepthDataDeliveryEnabled
         let depthNote: String? = depthOn ? nil

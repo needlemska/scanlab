@@ -195,14 +195,23 @@ struct CameraPreview: UIViewRepresentable {
         let view = PreviewView()
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
-        if let connection = view.previewLayer.connection,
-           connection.isVideoRotationAngleSupported(90) {
-            connection.videoRotationAngle = 90
-        }
+        applyRotation(to: view)
         return view
     }
 
-    func updateUIView(_ uiView: PreviewView, context: Context) {}
+    func updateUIView(_ uiView: PreviewView, context: Context) {
+        // Соединение превью появляется только после добавления входа в сессию,
+        // поэтому поворот проверяем и здесь, а не один раз в makeUIView.
+        applyRotation(to: uiView)
+    }
+
+    /// Портрет: сенсор смотрит боком, без поворота превью лежит на боку.
+    private func applyRotation(to view: PreviewView) {
+        guard let connection = view.previewLayer.connection,
+              connection.videoRotationAngle != 90,
+              connection.isVideoRotationAngleSupported(90) else { return }
+        connection.videoRotationAngle = 90
+    }
 }
 
 final class PreviewView: UIView {
