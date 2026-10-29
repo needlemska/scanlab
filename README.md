@@ -80,6 +80,23 @@ powershell -File tools/logic-test.ps1
 (на Windows нет модуля `simd` и Apple-фреймворков) — это проверяет CI. Поэтому
 новую чистую логику стоит держать в файлах без импортов Apple, как `ScanCoach.swift`.
 
+## 1в. Своя Core ML-модель: конвертация в CI
+
+У `coremltools` нет колёс под Windows (только macOS и Linux), поэтому конвертация
+живёт в Actions: вкладка **Actions** → workflow `convert-model` → **Run workflow**,
+выбрать `mil` (проверка toolchain) или `torch` (настоящий путь PyTorch → Core ML).
+
+Результат — `.mlpackage` в ветке `models`:
+
+```powershell
+git fetch origin models; git ls-tree -r --long FETCH_HEAD | Select-String mlpackage
+```
+
+В готовое приложение модель попадёт, когда её добавим в `project.yml` (папка
+`Models/`), и компилятор Xcode на macOS-раннере сам сделает из неё `.mlmodelc`.
+Пока модель не нужна: то, что мы реально используем, — системные API (Vision,
+ARKit, `PhotogrammetrySession`), подробности в [AI.md](AI.md).
+
 ---
 
 ## 2. Установка на iPhone (бесплатный Apple ID)
