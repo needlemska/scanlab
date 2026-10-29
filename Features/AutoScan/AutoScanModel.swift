@@ -114,7 +114,7 @@ final class AutoScanModel: NSObject, ObservableObject {
             return
         }
 
-        let distance = simd_distance(cameraPosition, center)
+        let distance = ScanCoach.distance(cameraPosition, center)
         ScanCoach.markCovered(&covered, camera: cameraPosition, center: center)
         coverage = ScanCoach.coverage(covered)
         hint = ScanCoach.hint(covered: covered, distance: distance, tracking: tracking)
@@ -133,9 +133,9 @@ final class AutoScanModel: NSObject, ObservableObject {
         guard autoShoot, shots < ScanCoach.maxShots else { return }
         guard distance >= ScanCoach.minDistance, distance <= ScanCoach.maxDistance else { return }
 
-        let direction = simd_normalize(cameraPosition - center)
+        let direction = ScanCoach.normalized(cameraPosition - center)
         if let lastDirection {
-            let angle = acos(min(max(simd_dot(direction, lastDirection), -1), 1)) * 180 / .pi
+            let angle = ScanCoach.angleDegrees(direction, lastDirection)
             guard angle >= ScanCoach.minShotAngleDeg else { return }
         }
         guard Date().timeIntervalSince(lastShotAt) >= ScanCoach.minInterval else { return }
@@ -174,7 +174,7 @@ final class AutoScanModel: NSObject, ObservableObject {
         shotsMeta.append([
             "file": name,
             "transform": pose,
-            "distance": Double(simd_distance(cameraPosition, center ?? cameraPosition)),
+            "distance": Double(ScanCoach.distance(cameraPosition, center ?? cameraPosition)),
             "coverage": Double(coverage)
         ])
         return true

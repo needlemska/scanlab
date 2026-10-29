@@ -1,10 +1,11 @@
 import Foundation
-import simd
 
 /// Подсказки сканера и покрытие ракурсов.
 ///
-/// Здесь нет ни ARKit, ни UIKit: чистая математика, которую можно проверить
-/// обычным скриптом на компьютере (так и проверяется — см. `.scratch/testdata/coach_test.py`).
+/// Здесь нет ни ARKit, ни UIKit, ни модуля `simd`: только Foundation и `SIMD3`
+/// из стандартной библиотеки. Это не самоцель — так файл компилируется и
+/// прогоняется прямо на Windows (`swiftc ScanCoach.swift CoachTests.swift`),
+/// а значит ошибки в математике ловятся за секунды, без раунда CI.
 enum ScanCoach {
     /// Ближе этого телефон к предмету подносить нельзя: объект не влезает в кадр.
     static let minDistance: Float = 0.22
@@ -23,8 +24,8 @@ enum ScanCoach {
 
     /// Направления вокруг центра предмета. Низ исключён: предмет стоит на столе,
     /// снизу его всё равно не снять. Строго верх тоже исключён: чтобы смотреть
-    /// на предмет вертикально сверху, телефон надо держать над ним объективом вниз —
-    /// такой ракурс никто не снимает, а незакрытый он держал бы «98 %» вечно.
+    /// на предмет вертикально сверху, телефон надо держать объективом вниз —
+    /// такой ракурс никто не снимает, а незакрытый он держал бы «94 %» вечно.
     static let directions: [SIMD3<Float>] = buildDirections()
 
     static var count: Int { directions.count }
@@ -38,7 +39,7 @@ enum ScanCoach {
                     if x == 0 && y == 0 && z == 0 { continue }
                     // Фильтр по нормализованной высоте: у угловых направлений
                     // координата сетки равна 1, а нормализованная — 0.577.
-                    let direction = simd_normalize(SIMD3<Float>(x, y, z))
+                    let direction = normalized(SIMD3<Float>(x, y, z))
                     if direction.y < -0.4 { continue }
                     if direction.y > 0.9 { continue }
                     out.append(direction)
@@ -48,18 +49,46 @@ enum ScanCoach {
         return out
     }
 
+    // MARK: - Векторная арифметика без модуля simd
+
+    static func dot(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        a.x * b.x + a.y * b.y + a.z * b.z
+    }
+
+    static func length(_ a: SIMD3<Float>) -> Float {
+        (a.x * a.x + a.y * a.y + a.z * a.z).squareRoot()
+    }
+
+    static func normalized(_ a: SIMD3<Float>) -> SIMD3<Float> {
+        let long = length(a)
+        guard long > 0.000001 else { return SIMD3<Float>(0, 1, 0) }
+        return a / long
+    }
+
+    static func distance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        length(a - b)
+    }
+
+    /// Угол между направлениями в градусах.
+    static func angleDegrees(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        let cosValue = min(max(dot(normalized(a), normalized(b)), -1), 1)
+        return acos(cosValue) * 180 / .pi
+    }
+
+    // MARK: - Покрытие
+
     /// Отмечает закрытые ракурсы. Возвращает true, если появился новый.
     @discardableResult
     static func markCovered(_ covered: inout [Bool], camera: SIMD3<Float>, center: SIMD3<Float>) -> Bool {
         guard covered.count == directions.count else { return false }
         let delta = camera - center
-        let length = simd_length(delta)
-        guard length > 0.001 else { return false }
-        let dir = delta / length
+        let long = length(delta)
+        guard long > 0.001 else { return false }
+        let dir = delta / long
         let limit = cos(coverAngleDeg * .pi / 180)
         var changed = false
         for index in directions.indices where !covered[index] {
-            if simd_dot(dir, directions[index]) >= limit {
+            if dot(dir, directions[index]) >= limit {
                 covered[index] = true
                 changed = true
             }
