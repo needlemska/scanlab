@@ -10,6 +10,7 @@ param(
     [string]$Ipa = "",
     [switch]$Check,
     [switch]$Watch,
+[switch]$WaitDevice,
     [int]$Minutes = 10
 )
 
@@ -59,7 +60,9 @@ except Exception as exc:
 Section "2. Sideloadly"
 $sideloadly = Join-Path $env:LOCALAPPDATA "Sideloadly\sideloadly.exe"
 if (Test-Path $sideloadly) {
-    $ver = (Get-Item $sideloadly).VersionInfo.FileVersion; if (-not $ver) { $ver = "версия не указана" }
+    $info = (Get-Item $sideloadly).VersionInfo
+    $ver = $info.FileVersion; if (-not $ver) { $ver = $info.ProductVersion }
+    if (-not $ver) { $ver = "версия не указана" }
     Ok "Sideloadly $ver - $sideloadly"
 } else {
     Bad "Sideloadly не найден - поставьте с sideloadly.io"
@@ -75,8 +78,24 @@ if ($service) {
 }
 
 Section "4. Телефон"
-$devices = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-    Where-Object { $_.InstanceId -like "USB\VID_05AC*" })
+$probeDevices = {
+    @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+        Where-Object { $_.InstanceId -like "USB\VID_05AC*" })
+}
+if ($WaitDevice -and (@(& $probeDevices)).Count -eq 0) {
+    Write-Host "  Жду кабель: подключите iPhone и нажмите «Доверять» (до $Minutes мин, Ctrl+C - отмена)..." -ForegroundColor Cyan
+    $deviceDeadline = (Get-Date).AddMinutes($Minutes)
+    while ((Get-Date) -lt $deviceDeadline -and (@(& $probeDevices)).Count -eq 0) {
+        Start-Sleep -Seconds 3
+    }
+    if ((@(& $probeDevices)).Count -gt 0) {
+        Write-Host "  телефон подключён" -ForegroundColor Green
+        Start-Sleep -Seconds 2
+    } else {
+        Write-Host "  за $Minutes мин телефон так и не появился" -ForegroundColor Yellow
+    }
+}
+$devices = @(& $probeDevices)
 if ($devices.Count -gt 0) {
     Ok "устройств Apple по USB: $($devices.Count)"
 } else {

@@ -17,6 +17,9 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Check
 
 # проверка + запуск Sideloadly, затем ждать установку 10 минут
 powershell -ExecutionPolicy Bypass -File install.ps1 -Watch
+
+# «подключи и забудь»: скрипт ждёт кабель, сам откроет Sideloadly с IPA и дождётся установки
+powershell -ExecutionPolicy Bypass -File install.ps1 -WaitDevice -Watch
 ```
 
 
