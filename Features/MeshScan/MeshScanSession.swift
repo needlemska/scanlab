@@ -26,6 +26,13 @@ final class MeshScanSession: NSObject, ObservableObject {
     @Published var smartMethod: String?
     @Published var smartBusy = false
 
+    /// Известная длина эталона, мм — её вводит пользователь.
+    @Published private(set) var calibrationKnownMM: Double?
+    /// Что показала линейка на этой же длине, мм.
+    @Published private(set) var calibrationMeasuredMM: Double?
+    /// Поправка, на которую умножается меш при экспорте (1 — без калибровки).
+    @Published private(set) var calibrationFactor: Double = 1
+
     /// Расстояние между двумя поставленными точками, метры.
     var rulerDistance: Float? {
         guard rulerPoints.count == 2 else { return nil }
@@ -110,6 +117,9 @@ final class MeshScanSession: NSObject, ObservableObject {
         isScanning = false
         lastArchive = nil
         rulerPoints.removeAll()
+        calibrationKnownMM = nil
+        calibrationMeasuredMM = nil
+        calibrationFactor = 1
         status = "Сброшено"
     }
 
@@ -142,6 +152,49 @@ final class MeshScanSession: NSObject, ObservableObject {
     func clearRuler() {
         rulerPoints.removeAll()
         status = "Линейка сброшена"
+    }
+
+    // MARK: - Калибровка по эталону
+
+    /// Пользователь тапнул две точки на эталоне известной длины и ввёл эту длину.
+    /// Считаем поправку: LiDAR ошибается систематически на 1–3 %, и эта поправка
+    /// переносится на весь меш при экспорте.
+    func calibrate(withKnownMM knownMM: Double) {
+        guard knownMM > 0 else {
+            status = "Введите известную длину эталона в миллиметрах"
+            return
+        }
+        guard let distance = rulerDistance, distance > 0.005 else {
+            status = "Сначала тапните две точки на эталоне"
+            return
+        }
+
+        let measuredMM = Double(distance) * 1000
+        let factor = knownMM / measuredMM
+
+        // Отсекаем случайные тапы: поправка больше ±5× — это не эталон, а промах.
+        guard factor.isFinite, factor > 0.2, factor < 5 else {
+            status = String(
+                format: "Не похоже на эталон: замер %.0f мм против %.0f мм. Переставьте точки.",
+                measuredMM, knownMM
+            )
+            return
+        }
+
+        calibrationKnownMM = knownMM
+        calibrationMeasuredMM = measuredMM
+        calibrationFactor = factor
+        status = String(
+            format: "Калибровка: эталон %.1f мм, замер %.1f мм, поправка %+.2f %%",
+            knownMM, measuredMM, (factor - 1) * 100
+        )
+    }
+
+    func clearCalibration() {
+        calibrationKnownMM = nil
+        calibrationMeasuredMM = nil
+        calibrationFactor = 1
+        status = "Калибровка сброшена: экспорт в «сырых» метрах LiDAR"
     }
 
     // MARK: - Умный габарит
@@ -192,26 +245,40 @@ final class MeshScanSession: NSObject, ObservableObject {
         status = "Экспорт…"
 
         let snapshot = anchors
+        let factor = Float(calibrationFactor)
+        let knownMM = calibrationKnownMM
+        let measuredMM = calibrationMeasuredMM
 
         Task.detached(priority: .userInitiated) {
             do {
                 let directory = Paths.newScanDirectory(prefix: "lidar")
                 let objURL = directory.appendingPathComponent("mesh.obj")
-                let stats = try MeshExporter.exportOBJ(anchors: snapshot, to: objURL)
-                try MeshExporter.writeMeta(to: directory, stats: stats)
+                let stats = try MeshExporter.exportOBJ(anchors: snapshot, to: objURL, scale: factor)
+
+                var extra: [String: Any] = [:]
+                if let knownMM = knownMM, let measuredMM = measuredMM, abs(factor - 1) > 0.0001 {
+                    extra["scaleFactor"] = Double(factor)
+                    extra["calibrationKnownMM"] = knownMM
+                    extra["calibrationMeasuredMM"] = measuredMM
+                    extra["calibrationNote"] = "Mesh vertices are multiplied by scaleFactor: the user measured a known length with the in-app ruler."
+                }
+                try MeshExporter.writeMeta(to: directory, stats: stats, extra: extra)
 
                 let archive = Paths.zipURL(for: directory)
                 try? FileManager.default.removeItem(at: archive)
                 try ZipWriter.write(directory: directory, to: archive)
 
                 let size = stats.size
+                let calibrated = abs(factor - 1) > 0.0001
                 await MainActor.run {
                     self.lastArchive = archive
                     self.isBusy = false
-                    self.status = String(
+                    let base = String(
                         format: "Готово: %d вершин, габарит %.2f × %.2f × %.2f м",
                         stats.vertices, size.x, size.y, size.z
                     )
+                    let suffix = calibrated ? String(format: " (поправка ×%.4f)", factor) : ""
+                    self.status = base + suffix
                 }
             } catch {
                 await MainActor.run {

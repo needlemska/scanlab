@@ -4,6 +4,7 @@ import UIKit
 
 struct MeshScanView: View {
     @StateObject private var scan = MeshScanSession()
+    @State private var knownText = "100"
 
     var body: some View {
         ZStack {
@@ -18,6 +19,7 @@ struct MeshScanView: View {
                 sizeLine
                 smartLine
                 rulerBar
+                calibrationBar
                 Spacer(minLength: 0)
                 hint
                 controls
@@ -64,7 +66,7 @@ struct MeshScanView: View {
     private var sizeLine: some View {
         Group {
             if scan.sizeMeters.x > 0 {
-                Text("Габарит: \(mm(scan.sizeMeters.x)) x \(mm(scan.sizeMeters.y)) x \(mm(scan.sizeMeters.z)) мм")
+                Text("Габарит: \(mm(scan.sizeMeters.x * scale)) x \(mm(scan.sizeMeters.y * scale)) x \(mm(scan.sizeMeters.z * scale)) мм")
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.85))
             } else {
@@ -79,6 +81,9 @@ struct MeshScanView: View {
         .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
     }
 
+    /// Поправка калибровки, применённая к показываемым размерам.
+    private var scale: Float { Float(scan.calibrationFactor) }
+
     private func mm(_ meters: Float) -> String {
         String(format: "%.0f", Double(meters * 1000))
     }
@@ -88,7 +93,7 @@ struct MeshScanView: View {
     private var smartLine: some View {
         HStack(spacing: 8) {
             if let size = scan.smartSize {
-                Text("Предмет: \(mm(size.x)) x \(mm(size.y)) x \(mm(size.z)) мм")
+                Text("Предмет: \(mm(size.x * scale)) x \(mm(size.y * scale)) x \(mm(size.z * scale)) мм")
                     .font(.system(.caption, design: .monospaced).bold())
                     .foregroundStyle(.green)
                 Text(scan.smartMethod == "TABLE" ? "от стола" : "по осям")
@@ -171,6 +176,57 @@ struct MeshScanView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Калибровка по эталону: две точки на детали известной длины + ввод этой длины.
+    /// LiDAR ошибается систематически на 1–3 %, поправка переносится на весь меш.
+    private var calibrationBar: some View {
+        HStack(spacing: 8) {
+            if let known = scan.calibrationKnownMM, let measured = scan.calibrationMeasuredMM {
+                Image(systemName: "ruler.fill")
+                    .foregroundStyle(Color.green)
+                Text(String(format: "эталон %.1f мм, замер %.1f, ×%.4f",
+                            known, measured, scan.calibrationFactor))
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 0)
+                Button {
+                    scan.clearCalibration()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            } else {
+                Image(systemName: "ruler")
+                    .foregroundStyle(.white.opacity(0.7))
+                Text("эталон, мм")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.7))
+                TextField("100", text: $knownText)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.center)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .frame(width: 72)
+                    .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+                Button("Калибровать") {
+                    let text = knownText.replacingOccurrences(of: ",", with: ".")
+                    scan.calibrate(withKnownMM: Double(text) ?? 0)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(scan.rulerDistance == nil ? Color.white.opacity(0.4) : Color.green)
+                .disabled(scan.rulerDistance == nil)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var hint: some View {

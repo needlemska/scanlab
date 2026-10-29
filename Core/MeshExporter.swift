@@ -19,11 +19,15 @@ enum MeshExporter {
         var size: SIMD3<Float> { max - min }
     }
 
-    static func exportOBJ(anchors: [UUID: ARMeshAnchor], to url: URL) throws -> Stats {
+    /// - Parameter scale: поправка калибровки (1 = как измерил LiDAR).
+    static func exportOBJ(anchors: [UUID: ARMeshAnchor], to url: URL, scale: Float = 1) throws -> Stats {
         let sink = try TextSink(url: url)
         defer { sink.close() }
 
         sink.write("# ScanLab LiDAR mesh\n# units: meters, ARKit world space (Y up)\n")
+        if abs(scale - 1) > 0.0001 {
+            sink.write("# scale applied: \(scale) (calibrated against a known length)\n")
+        }
         sink.write("o scan\n")
 
         var indexOffset = 0
@@ -50,7 +54,8 @@ enum MeshExporter {
                     .advanced(by: offset + index * stride)
                     .assumingMemoryBound(to: Float.self)
                 let local = SIMD3<Float>(pointer[0], pointer[1], pointer[2])
-                let world = transform * SIMD4<Float>(local, 1)
+                let transformed = transform * SIMD4<Float>(local, 1)
+                let world = SIMD3<Float>(transformed.x, transformed.y, transformed.z) * scale
 
                 if world.x < minBound.x { minBound.x = world.x }
                 if world.y < minBound.y { minBound.y = world.y }
@@ -92,7 +97,7 @@ enum MeshExporter {
         )
     }
 
-    static func writeMeta(to directory: URL, stats: Stats, extra: [String: String] = [:]) throws {
+    static func writeMeta(to directory: URL, stats: Stats, extra: [String: Any] = [:]) throws {
         var meta: [String: Any] = [
             "app": "ScanLab",
             "kind": "lidar-mesh",
