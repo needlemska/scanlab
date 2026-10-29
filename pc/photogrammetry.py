@@ -207,16 +207,42 @@ def describe_shots(dataset: str) -> dict:
     }
 
 
-def resolve_scale(args, dataset: str, info: dict) -> float:
-    """Масштаб реконструкции: сначала по позам ARKit, иначе оставляем как есть."""
+def resolve_scale(args, dataset: str, frames: str, info: dict) -> float:
+    """Масштаб реконструкции: глубина LiDAR точнее поз, поэтому она первая."""
     if args.scale > 0:
         info["scale"] = {"value": args.scale, "source": "cli"}
         return args.scale
+
+    model_dir = os.path.join(dataset, "sparse", "0-txt")
+    if not os.path.isdir(model_dir):
+        return 1.0
+
+    if not args.no_scale_from_depth:
+        try:
+            import scale_from_depth as sfd
+
+            result = sfd.estimate_scale(model_dir, frames)
+            scale = float(result["scale"])
+            if sfd.SCALE_LIMITS[0] <= scale <= sfd.SCALE_LIMITS[1]:
+                info["scale"] = {
+                    "value": round(scale, 6),
+                    "source": "depth",
+                    "pairs": result["pairs"],
+                    "inliers": result["inliers"],
+                    "median_residual_mm": round(result["median_residual_mm"], 3),
+                }
+                log(f"[scale] x{scale:.5f} from LiDAR depth "
+                    f"(inliers {result['inliers']}/{result['pairs']}, "
+                    f"residual {result['median_residual_mm']:.2f} mm)")
+                return scale
+            log(f"[scale] depth gave implausible x{scale:.4f}, trying poses")
+        except Exception as exc:  # noqa: BLE001 — пайплайн не должен падать из-за масштаба
+            log(f"[scale] depth not used: {exc}")
+
     if args.no_scale_from_poses:
         return 1.0
 
     shots = os.path.join(dataset, "shots.json")
-    model_dir = os.path.join(dataset, "sparse", "0-txt")
     if not (os.path.isfile(shots) and os.path.isdir(model_dir)):
         return 1.0
 
@@ -266,6 +292,8 @@ def main() -> int:
                         help="готовый коэффициент масштаба (перебивает расчёт по позам ARKit)")
     parser.add_argument("--no-scale-from-poses", action="store_true",
                         help="не восстанавливать масштаб по позам ARKit (нужно для поворотного стола)")
+    parser.add_argument("--no-scale-from-depth", action="store_true",
+                        help="не использовать глубину LiDAR для масштаба (например, кадры без depth-файлов)")
     parser.add_argument("--no-measure", action="store_true", help="не запускать measure.py в конце")
     parser.add_argument("--dry-run", action="store_true", help="только напечатать команды")
     args = parser.parse_args()
@@ -302,7 +330,7 @@ def main() -> int:
 
         scale = 1.0
         if not args.dry_run:
-            scale = resolve_scale(args, dataset, info)
+            scale = resolve_scale(args, dataset, frames, info)
         if args.fit_mm > 0 and not args.dry_run:
             info["fit"] = {"mm": args.fit_mm, "axis": args.fit_axis}
         if not args.no_measure and not args.dry_run:
