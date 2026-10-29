@@ -49,6 +49,7 @@ $env:PATH = "$binDir;" + $env:PATH
 
 $sources = @(
     "Core\ScanCoach.swift",
+    "Core\ReferenceRect.swift",
     "tools\logic\main.swift"
 )
 foreach ($source in $sources) {

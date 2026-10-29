@@ -190,6 +190,29 @@ final class MeshScanSession: NSObject, ObservableObject {
         )
     }
 
+    /// Калибровка по предмету известного размера прямо в кадре: прямоугольник
+    /// находит Vision, стороны считаются по LiDAR-глубине его углов. Ручная
+    /// линейка остаётся на случай, когда эталона под рукой нет.
+    func calibrate(withReference kind: ReferenceKind) {
+        let frame = arView?.session.currentFrame
+        status = "Ищу «\(kind.title)» в кадре…"
+
+        switch ReferenceScanner.detect(kind: kind, frame: frame) {
+        case .failure(let failure):
+            status = failure.message
+        case .success(let detection):
+            let measuredMM = Double(detection.measuredMM)
+            let factor = Double(detection.factor)
+            calibrationKnownMM = Double(detection.nominalMM)
+            calibrationMeasuredMM = measuredMM
+            calibrationFactor = factor
+            status = String(
+                format: "Эталон %@: замер %.1f мм против %.1f мм, поправка %+.2f %%",
+                kind.title, measuredMM, Double(detection.nominalMM), (factor - 1) * 100
+            )
+        }
+    }
+
     func clearCalibration() {
         calibrationKnownMM = nil
         calibrationMeasuredMM = nil

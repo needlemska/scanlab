@@ -4,7 +4,7 @@ import CoreVideo
 import UIKit
 import simd
 
-/// Перевод тапа по экрану в метрическую точку поверхности через LiDAR-глубину.
+/// Перевод точки кадра в метрическую точку поверхности через LiDAR-глубину.
 ///
 /// Почему не raycast по мешу: у ARView с `sceneReconstruction` нет коллизий
 /// у реконструированных поверхностей, а собственная триангуляция по кускам
@@ -13,15 +13,9 @@ import simd
 enum RulerPicker {
 
     /// Точка поверхности в мировых координатах ARKit (метры) или nil,
-    /// если глубины в этом пикселе нет.
+    /// если глубины в этом пикселе нет. Тап по экрану.
     static func worldPoint(tap: CGPoint, viewSize: CGSize, frame: ARFrame) -> SIMD3<Float>? {
         guard viewSize.width > 1, viewSize.height > 1 else { return nil }
-        guard let sceneDepth = frame.sceneDepth else { return nil }
-
-        let depthMap = sceneDepth.depthMap
-        let depthWidth = CVPixelBufferGetWidth(depthMap)
-        let depthHeight = CVPixelBufferGetHeight(depthMap)
-        guard depthWidth > 1, depthHeight > 1 else { return nil }
 
         // 1. Тап в координатах вью → нормализованные координаты изображения.
         let normalizedView = CGPoint(x: tap.x / viewSize.width, y: tap.y / viewSize.height)
@@ -30,8 +24,31 @@ enum RulerPicker {
         guard normalizedImage.x >= 0, normalizedImage.x <= 1,
               normalizedImage.y >= 0, normalizedImage.y <= 1 else { return nil }
 
-        let rawX = Int(normalizedImage.x * CGFloat(depthWidth))
-        let rawY = Int(normalizedImage.y * CGFloat(depthHeight))
+        let resolution = frame.camera.imageResolution
+        let point = CGPoint(x: normalizedImage.x * resolution.width,
+                            y: normalizedImage.y * resolution.height)
+        return worldPoint(imagePoint: point, frame: frame)
+    }
+
+    /// То же самое, но точка задана в пикселях полного кадра камеры (начало — левый
+    /// верхний угол). Нужно распознавателю эталона: Vision отдаёт углы в долях кадра.
+    static func worldPoint(imagePoint: CGPoint, frame: ARFrame) -> SIMD3<Float>? {
+        guard let sceneDepth = frame.sceneDepth else { return nil }
+
+        let depthMap = sceneDepth.depthMap
+        let depthWidth = CVPixelBufferGetWidth(depthMap)
+        let depthHeight = CVPixelBufferGetHeight(depthMap)
+        guard depthWidth > 1, depthHeight > 1 else { return nil }
+
+        let imageResolution = frame.camera.imageResolution
+        guard imageResolution.width > 0, imageResolution.height > 0 else { return nil }
+
+        let normalizedX = imagePoint.x / imageResolution.width
+        let normalizedY = imagePoint.y / imageResolution.height
+        guard normalizedX >= 0, normalizedX <= 1, normalizedY >= 0, normalizedY <= 1 else { return nil }
+
+        let rawX = Int(normalizedX * CGFloat(depthWidth))
+        let rawY = Int(normalizedY * CGFloat(depthHeight))
         let depthX = min(max(rawX, 0), depthWidth - 1)
         let depthY = min(max(rawY, 0), depthHeight - 1)
 
@@ -40,9 +57,6 @@ enum RulerPicker {
 
         // 2. Карта глубины меньше кадра камеры, поэтому интринсики масштабируем.
         let intrinsics = frame.camera.intrinsics
-        let imageResolution = frame.camera.imageResolution
-        guard imageResolution.width > 0, imageResolution.height > 0 else { return nil }
-
         let scaleX = Float(depthWidth) / Float(imageResolution.width)
         let scaleY = Float(depthHeight) / Float(imageResolution.height)
         let fx = intrinsics.columns.0.x * scaleX

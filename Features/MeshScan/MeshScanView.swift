@@ -182,6 +182,17 @@ struct MeshScanView: View {
     /// LiDAR ошибается систематически на 1–3 %, поправка переносится на весь меш.
     private var calibrationBar: some View {
         HStack(spacing: 8) {
+            Menu {
+                ForEach(ReferenceKind.allCases) { kind in
+                    Button(kind.title) {
+                        scan.calibrate(withReference: kind)
+                    }
+                }
+            } label: {
+                Image(systemName: "viewfinder")
+                    .foregroundStyle(Color.cyan)
+            }
+            .disabled(scan.isBusy)
             if let known = scan.calibrationKnownMM, let measured = scan.calibrationMeasuredMM {
                 Image(systemName: "ruler.fill")
                     .foregroundStyle(Color.green)

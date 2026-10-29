@@ -99,6 +99,52 @@ covered = [Bool](repeating: false, count: ScanCoach.count)
 ScanCoach.markCovered(&covered, camera: center, center: center)
 check("камера в центре: покрытие 0", ScanCoach.coverage(covered) == 0)
 
+// 9. Эталон в кадре: прямоугольник по четырём углам и поправка масштаба.
+//    Углы задаём в метрах, как их отдаёт LiDAR, — плоскость XY, z = 0.
+func rect(width: Float, height: Float, origin: SIMD3<Float> = .zero, swap: Bool = false) -> [SIMD3<Float>] {
+    let a = origin
+    let b = origin + SIMD3<Float>(width, 0, 0)
+    let c = origin + SIMD3<Float>(width, height, 0)
+    let d = origin + SIMD3<Float>(0, height, 0)
+    return swap ? [b, c, d, a] : [a, b, c, d]
+}
+
+let a4Sides = ReferenceRect.sides(rect(width: 0.210, height: 0.297))
+check("A4: стороны разобраны", a4Sides != nil)
+if let a4Sides {
+    check("A4: короткая сторона 210 мм", abs(a4Sides.a - 0.210) < 0.0005, "\(a4Sides.a)")
+    check("A4: длинная сторона 297 мм", abs(a4Sides.b - 0.297) < 0.0005, "\(a4Sides.b)")
+    let a4Factor = ReferenceRect.factor(measured: a4Sides, kind: .a4)
+    check("A4: поправка 1.0", a4Factor != nil && abs(a4Factor! - 1) < 0.001, "\(String(describing: a4Factor))")
+}
+
+// Тот же лист, снятый вдвое ближе (в SfM-единицах он вдвое крупнее) — поправка 0.5.
+let halfSides = ReferenceRect.sides(rect(width: 0.420, height: 0.594))
+let halfFactor = halfSides.flatMap { ReferenceRect.factor(measured: $0, kind: .a4) }
+check("A4 вдвое крупнее: поправка 0.5", halfFactor != nil && abs(halfFactor! - 0.5) < 0.002, "\(String(describing: halfFactor))")
+
+// Порядок углов не важен: обход может начинаться с любого.
+let rotatedSides = ReferenceRect.sides(rect(width: 0.210, height: 0.297, swap: true))
+let rotatedFactor = rotatedSides.flatMap { ReferenceRect.factor(measured: $0, kind: .a4) }
+check("A4: другой порядок углов", rotatedFactor != nil && abs(rotatedFactor! - 1) < 0.002, "\(String(describing: rotatedFactor))")
+
+// Карта и монета.
+let cardSides = ReferenceRect.sides(rect(width: 0.0856, height: 0.05398, origin: SIMD3<Float>(0.3, 0.1, 0)))
+let cardFactor = cardSides.flatMap { ReferenceRect.factor(measured: $0, kind: .card) }
+check("карта: поправка 1.0", cardFactor != nil && abs(cardFactor! - 1) < 0.002, "\(String(describing: cardFactor))")
+let coinSides = ReferenceRect.sides(rect(width: 0.025, height: 0.025))
+let coinFactor = coinSides.flatMap { ReferenceRect.factor(measured: $0, kind: .coin) }
+check("монета: поправка 1.0", coinFactor != nil && abs(coinFactor! - 1) < 0.002, "\(String(describing: coinFactor))")
+
+// Квадрат 10×10 см — это не A4: соотношение сторон мимо на 29 %, отбраковываем.
+let squareSides = ReferenceRect.sides(rect(width: 0.100, height: 0.100))
+check("квадрат не принят за A4", squareSides.flatMap { ReferenceRect.factor(measured: $0, kind: .a4) } == nil)
+
+// Мусор: три угла, нулевая сторона, абсурдно большой прямоугольник.
+check("три угла отбракованы", ReferenceRect.sides([.zero, SIMD3<Float>(1, 0, 0), SIMD3<Float>(0, 1, 0)]) == nil)
+check("нулевая сторона отбракована", ReferenceRect.sides(rect(width: 0.001, height: 0.297)) == nil)
+let giantSides = ReferenceRect.sides(rect(width: 21, height: 29.7))
+check("гигантский прямоугольник отбракован", giantSides.flatMap { ReferenceRect.factor(measured: $0, kind: .a4) } == nil)
 print("")
 if failures.isEmpty {
     print("все проверки прошли (\(ScanCoach.count) направлений)")
