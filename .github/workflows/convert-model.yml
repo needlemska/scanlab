@@ -1,0 +1,75 @@
+name: convert-model
+
+# Конвертация модели в Core ML на Linux-раннере.
+#
+# Зачем не локально: у coremltools нет колёс под Windows (только macOS и manylinux),
+# поэтому на этой машине pip собирал бы sdist из исходников. На ubuntu-latest
+# ставится готовое колесо — конвертация занимает секунды.
+#
+# Результат: ветка `models` с .mlpackage (забрать git-ом, как IPA из ветки builds)
+# плюс артефакт на случай, если CDN GitHub доступен.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "mil = проверка toolchain, torch = полный путь PyTorch -> Core ML"
+        type: choice
+        options: [mil, torch]
+        default: mil
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    name: Convert (${{ inputs.source }})
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install coremltools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "coremltools==9.0"
+
+      - name: Install torch (only for torch source)
+        if: ${{ inputs.source == 'torch' }}
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+
+      - name: Convert
+        run: |
+          python pc/convert_model.py --source "${{ inputs.source }}" --out "Models/Model.mlpackage"
+          du -sh Models/Model.mlpackage
+
+      - name: Pack
+        run: |
+          cd Models
+          zip -q -r "$RUNNER_TEMP/Model.mlpackage.zip" Model.mlpackage
+          ls -l "$RUNNER_TEMP/Model.mlpackage.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coreml-model
+          path: ${{ runner.temp }}/Model.mlpackage.zip
+          retention-days: 30
+
+      - name: Publish model to "models" branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git checkout -B models
+          git add -f Models
+          echo "source: ${{ inputs.source }}" > MODELS.txt
+          echo "coremltools: 9.0" >> MODELS.txt
+          echo "build: ${{ github.run_id }}" >> MODELS.txt
+          git add -f MODELS.txt
+          git commit -m "model: ${{ inputs.source }} from run ${{ github.run_id }}"
+          git push -f origin models
