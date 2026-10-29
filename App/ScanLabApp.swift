@@ -21,6 +21,9 @@ struct RootView: View {
 
             LibraryView()
                 .tabItem { Label("Сканы", systemImage: "folder") }
+
+            DiagnosticsView()
+                .tabItem { Label("Тест", systemImage: "checkmark.seal") }
         }
     }
 }
