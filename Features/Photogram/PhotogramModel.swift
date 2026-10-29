@@ -23,7 +23,7 @@ final class PhotogramModel: ObservableObject {
 
     /// Собирает модель по кадрам из папки скана. Кладёт `model.usdz` рядом с кадрами
     /// и обновляет ZIP-архив папки.
-    func run(folder: URL, detail: PhotogrammetrySession.Request.Detail = .medium) async {
+    func run(folder: URL, detail: PhotogrammetrySession.Request.Detail = .reduced) async {
         guard !isRunning else { return }
         guard Self.isSupported else {
             message = "Фотограмметрия недоступна на этом устройстве"
