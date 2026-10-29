@@ -14,7 +14,8 @@ final class TurntableTracker {
 
     var isAvailable: Bool { motion.isDeviceMotionAvailable }
 
-    /// Колбэк приходит на главном потоке, значение — 0…360° от старта.
+    /// Колбэк приходит на главном потоке, значение — накопленный угол от старта
+    /// (растёт и в плюс, и в минус: назад на 5° это −5°, а не 355°).
     func start(_ handler: @escaping (Double) -> Void) {
         guard motion.isDeviceMotionAvailable else { return }
         referenceYaw = nil
@@ -25,9 +26,11 @@ final class TurntableTracker {
             let yaw = data.attitude.yaw * 180.0 / Double.pi
             if let reference = self.referenceYaw {
                 var delta = (yaw - reference).truncatingRemainder(dividingBy: 360)
-                if delta < 0 { delta += 360 }
-                self.yawDegrees = delta
-                handler(delta)
+                // В диапазон −180…180: иначе поворот назад даёт фантомный сектор.
+                delta = (delta + 540).truncatingRemainder(dividingBy: 360) - 180
+                self.yawDegrees += delta
+                self.referenceYaw = yaw
+                handler(self.yawDegrees)
             } else {
                 self.referenceYaw = yaw
                 handler(0)

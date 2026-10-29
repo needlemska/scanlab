@@ -44,6 +44,10 @@ enum SmartBox {
         sqrt(dot(a, a))
     }
 
+    static func isFinite(_ v: SIMD3<Float>) -> Bool {
+        v.x.isFinite && v.y.isFinite && v.z.isFinite
+    }
+
     static func normalized(_ a: SIMD3<Float>) -> SIMD3<Float> {
         let l = length(a)
         return l > 1e-9 ? a / l : SIMD3<Float>(0, 1, 0)
@@ -80,10 +84,12 @@ enum SmartBox {
             var mask = [Bool](repeating: false, count: normals.count)
             var weight: Float = 0
             var covered = false
-            for j in 0..<normals.count where abs(dot(normals[j], axis)) > threshold {
+            // Грань считается только в одном кластере: иначе покрытие
+            // превышает 1.0 и порог MIN_COVERAGE перестаёт что-либо значить.
+            for j in 0..<normals.count where !used[j] && abs(dot(normals[j], axis)) > threshold {
                 mask[j] = true
                 weight += weights[j]
-                if !used[j] { covered = true }
+                covered = true
             }
             if !covered { continue }
             // параллельные кластеры (стол и низ предмета в одной плоскости,
@@ -233,8 +239,17 @@ enum SmartBox {
         return obb(points: facePoints, normals: faceNormals, weights: faceAreas)
     }
 
+    /// Копия меша в обычных массивах. Буферы ARKit нельзя читать из фоновой
+    /// задачи: сессия продолжает их переписывать и в расчёт попадут рваные данные.
+    struct MeshSnapshot {
+        var points: [SIMD3<Float>]
+        var normals: [SIMD3<Float>]
+        var areas: [Float]
+    }
+
     /// Собирает точки/нормали/площади прямо из ARMeshAnchor-ов в мировых координатах.
-    static func measure(anchors: [ARMeshAnchor], maxFaces: Int = 120_000) -> SmartBoxResult? {
+    /// Вызывать на том потоке, который владеет ARKit (главный), до ухода в detached.
+    static func snapshot(anchors: [ARMeshAnchor], maxFaces: Int = 120_000) -> MeshSnapshot {
         var points: [SIMD3<Float>] = []
         var normals: [SIMD3<Float>] = []
         var areas: [Float] = []
@@ -279,7 +294,9 @@ enum SmartBox {
                     let a = vertex(i0), b = vertex(i1), c = vertex(i2)
                     let normal = cross(b - a, c - a)
                     let area2 = length(normal)
-                    if area2 > 1e-9 {
+                    // inf/nan в вершинах иначе уезжают в нормали и габарит.
+                    if area2 > 1e-9, area2.isFinite,
+                       isFinite(a), isFinite(b), isFinite(c) {
                         points.append(a); points.append(b); points.append(c)
                         normals.append(normal / area2)
                         areas.append(area2 * 0.5)
@@ -289,6 +306,16 @@ enum SmartBox {
             }
         }
 
-        return measure(facePoints: points, faceNormals: normals, faceAreas: areas)
+        return MeshSnapshot(points: points, normals: normals, areas: areas)
+    }
+
+    /// Считает габарит по готовой копии меша (можно в фоне).
+    static func measure(_ snapshot: MeshSnapshot) -> SmartBoxResult? {
+        measure(facePoints: snapshot.points, faceNormals: snapshot.normals, faceAreas: snapshot.areas)
+    }
+
+    /// Удобный вариант «всё сразу» для вызывающих на главном потоке.
+    static func measure(anchors: [ARMeshAnchor], maxFaces: Int = 120_000) -> SmartBoxResult? {
+        measure(snapshot(anchors: anchors, maxFaces: maxFaces))
     }
 }

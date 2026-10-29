@@ -209,10 +209,12 @@ final class MeshScanSession: NSObject, ObservableObject {
         guard !smartBusy else { return }
         smartBusy = true
         status = "Считаю габарит по осям предмета…"
-        let snapshot = Array(anchors.values)
+        // Копию снимаем на главном потоке: читать буферы ARKit из detached-задачи
+        // нельзя, сессия их переписывает прямо во время расчёта.
+        let snapshot = SmartBox.snapshot(anchors: Array(anchors.values))
 
         Task.detached(priority: .userInitiated) {
-            let result = SmartBox.measure(anchors: snapshot)
+            let result = SmartBox.measure(snapshot)
             await MainActor.run {
                 self.smartBusy = false
                 if let result = result {
@@ -302,6 +304,9 @@ final class MeshScanSession: NSObject, ObservableObject {
 
     private func ingest(_ meshes: [ARMeshAnchor]) {
         for mesh in meshes {
+            // ARKit уточняет якорь на месте: вершины пересчитываются, а число
+            // часто не меняется — по одному счётчику кэш AABB протухает молча.
+            anchorBoxes[mesh.identifier] = nil
             anchors[mesh.identifier] = mesh
         }
         if Date().timeIntervalSince(lastRecount) > 0.25 {
@@ -355,9 +360,13 @@ final class MeshScanSession: NSObject, ObservableObject {
                 let vertex = base.advanced(by: index * stride)
                     .assumingMemoryBound(to: Float32.self)
                 let point = SIMD3<Float>(vertex[0], vertex[1], vertex[2])
+                // Неконечные вершины ARKit иначе отравляют min/max: одна nan делает
+                // габарит nan и он уезжает в интерфейс.
+                guard point.x.isFinite, point.y.isFinite, point.z.isFinite else { continue }
                 lo = simd_min(lo, point)
                 hi = simd_max(hi, point)
             }
+            if lo.x > hi.x { lo = .zero; hi = .zero }
             localLo = lo
             localHi = hi
             anchorBoxes[anchor.identifier] = AnchorBox(count: count, lo: lo, hi: hi)

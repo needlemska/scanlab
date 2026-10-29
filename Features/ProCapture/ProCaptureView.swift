@@ -57,7 +57,9 @@ struct ProCaptureView: View {
 
     private var panel: some View {
         VStack(spacing: 12) {
-            Toggle("Поворотный стол", isOn: $model.turntableMode)
+            // Считаем поворот телефона, а не стола: на вращающемся столе
+            // телефон неподвижен и секторы не растут. Поэтому «обход в руке».
+            Toggle("Обход объекта в руке", isOn: $model.turntableMode)
                 .onChange(of: model.turntableMode) { _, _ in model.turntableDidChange() }
 
             if model.turntableMode {

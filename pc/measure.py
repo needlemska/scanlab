@@ -218,8 +218,9 @@ def _clusters(normals: np.ndarray, weights: np.ndarray) -> list[tuple]:
                 break
             axis = (normals[m] * np.sign(normals[m] @ axis)[:, None]).mean(0)
             axis /= max(float(np.linalg.norm(axis)), 1e-9)
-        m = np.abs(normals @ axis) > thr
-        if not m.any() or used[m].all():
+        # грань считается только в одном кластере, иначе покрытие > 1.0
+        m = (np.abs(normals @ axis) > thr) & ~used
+        if not m.any():
             continue
         # параллельные кластеры (стол и низ предмета в одной плоскости) — не оси
         if any(abs(float(axis @ c[0])) > thr for c in found):

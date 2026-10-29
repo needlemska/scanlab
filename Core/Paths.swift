@@ -13,14 +13,30 @@ enum Paths {
         return url
     }
 
+    /// Имя папки с точностью до секунды: две серии в одну секунду попали бы
+    /// в одну папку и перезаписали img_001.jpg. Поэтому при совпадении — счётчик.
     static func newScanDirectory(prefix: String) -> URL {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let name = "\(prefix)-\(formatter.string(from: Date()))"
-        let url = scans.appendingPathComponent(name, isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        let base = "\(prefix)-\(formatter.string(from: Date()))"
+
+        for attempt in 0..<100 {
+            let name = attempt == 0 ? base : "\(base)-\(attempt + 1)"
+            let url = scans.appendingPathComponent(name, isDirectory: true)
+            if FileManager.default.fileExists(atPath: url.path) { continue }
+            do {
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                return url
+            } catch {
+                continue
+            }
+        }
+
+        // Крайний случай: 100 одинаковых имён подряд.
+        let fallback = scans.appendingPathComponent("\(base)-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+        return fallback
     }
 
     static func zipURL(for directory: URL) -> URL {

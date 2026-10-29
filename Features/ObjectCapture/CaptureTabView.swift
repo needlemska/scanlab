@@ -5,9 +5,14 @@ import UIKit
 /// Сессия Object Capture (iOS 17): приложение само подсказывает, как обходить объект,
 /// и сохраняет кадры прямо в папку скана. Дальше — тот же `PhotogramModel`, что и в
 /// «Библиотеке», поэтому модель собирается на телефоне.
+///
+/// Важные правила API, из-за которых раньше ломался экран «3D»:
+/// - `start(imagesDirectory:configuration:)` допустим только один раз на сессии;
+/// - `startDetecting()` работает только в состоянии `.ready`, в `.initializing` возвращает false;
+/// - после `cancel()` сессия уходит в `.failed` и переиспользовать её нельзя — нужна новая.
 @MainActor
 final class CaptureSessionModel: ObservableObject {
-    let session = ObjectCaptureSession()
+    @Published private(set) var session = ObjectCaptureSession()
 
     @Published private(set) var state: ObjectCaptureSession.CaptureState = .initializing
     @Published private(set) var shots = 0
@@ -16,7 +21,9 @@ final class CaptureSessionModel: ObservableObject {
     @Published private(set) var folder: URL?
     @Published var message: String?
 
-    private var watching = false
+    private var tasks: [Task<Void, Never>] = []
+    private var detectRequested = false
+    private var detectAttempts = 0
 
     var canBeginCapture: Bool {
         if case .detecting = state { return true }
@@ -38,9 +45,21 @@ final class CaptureSessionModel: ObservableObject {
         return false
     }
 
+    var isStarting: Bool {
+        if case .initializing = state { return folder != nil }
+        return false
+    }
+
     /// Папка скана создаётся сразу: кадры пишутся в Documents, значит переживут переподпись.
     func start() {
-        guard folder == nil, !watching else { return }
+        guard folder == nil else { return }
+
+        // Сессию, которая уже отменялась или падала, API оживить не даёт.
+        if hasFailed {
+            session = ObjectCaptureSession()
+            state = .initializing
+        }
+
         let target = Paths.newScanDirectory(prefix: "photo3d")
         do {
             try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
@@ -48,12 +67,26 @@ final class CaptureSessionModel: ObservableObject {
             message = "Не удалось создать папку: \(error.localizedDescription)"
             return
         }
+
+        detectRequested = false
+        detectAttempts = 0
+        shots = 0
+        passDone = false
+        isPaused = false
+        message = nil
+
         var configuration = ObjectCaptureSession.Configuration()
         configuration.checkpointDirectory = nil
         session.start(imagesDirectory: target, configuration: configuration)
         folder = target
-        session.startDetecting()
         watch()
+    }
+
+    /// Отменить текущий скан и начать новый: «Заново» после ошибки.
+    func restart() {
+        cancel()
+        message = nil
+        start()
     }
 
     func beginCapture() {
@@ -85,34 +118,80 @@ final class CaptureSessionModel: ObservableObject {
     }
 
     func cancel() {
-        session.cancel()
-        message = "Сканирование отменено"
+        stopWatching()
+        if folder != nil {
+            session.cancel()
+        }
+        session = ObjectCaptureSession()
         folder = nil
-        watching = false
         state = .initializing
         shots = 0
         passDone = false
         isPaused = false
+        detectRequested = false
+        detectAttempts = 0
+        message = "Сканирование отменено"
+    }
+
+    /// Автозапуск определения объекта, как только сессия готова.
+    /// Без этого экран «3D» висел на «Готовлю камеру…» и кнопка съёмки не появлялась.
+    private func requestDetection() {
+        guard !detectRequested else { return }
+        guard case .ready = state else { return }
+        detectRequested = true
+        detectAttempts += 1
+        if session.startDetecting() {
+            message = "Выберите объект в рамке"
+            return
+        }
+        // Плоскость не нашлась: остаёмся в .ready и пробуем ещё раз чуть позже.
+        detectRequested = false
+        if detectAttempts < 20 {
+            message = "Наведите телефон на предмет: нужна поверхность под ним"
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                self.requestDetection()
+            }
+        } else {
+            message = "Не вижу плоскость под предметом. Положите объект на стол и нажмите «Повторить»"
+        }
     }
 
     private func watch() {
-        watching = true
+        stopWatching()
         let current = session
-        Task { @MainActor in
+        tasks.append(Task { @MainActor in
             for await value in current.stateUpdates {
                 self.state = value
+                switch value {
+                case .ready:
+                    self.requestDetection()
+                case .capturing:
+                    self.isPaused = false
+                case .finishing, .completed:
+                    self.isPaused = false
+                case .failed(let error):
+                    self.message = "Ошибка: \(error.localizedDescription)"
+                default:
+                    break
+                }
             }
-        }
-        Task { @MainActor in
+        })
+        tasks.append(Task { @MainActor in
             for await value in current.numberOfShotsTakenUpdates {
                 self.shots = value
             }
-        }
-        Task { @MainActor in
+        })
+        tasks.append(Task { @MainActor in
             for await value in current.userCompletedScanPassUpdates {
                 self.passDone = value
             }
-        }
+        })
+    }
+
+    private func stopWatching() {
+        for task in tasks { task.cancel() }
+        tasks.removeAll()
     }
 }
 
@@ -148,6 +227,7 @@ struct CaptureTabView: View {
     private var capture: some View {
         ZStack(alignment: .bottom) {
             ObjectCaptureView(session: model.session)
+                .id(ObjectIdentifier(model.session))
                 .ignoresSafeArea()
 
             VStack(spacing: 10) {
@@ -165,6 +245,7 @@ struct CaptureTabView: View {
                     Text(message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
 
                 if photogram.isRunning {
@@ -225,8 +306,8 @@ struct CaptureTabView: View {
                     .tint(.red)
             }
 
-            if model.hasFailed {
-                Button("Заново") { model.cancel() }
+            if model.hasFailed || model.folder == nil {
+                Button(model.hasFailed ? "Повторить" : "Новый скан") { model.restart() }
                     .buttonStyle(.borderedProminent)
             }
 
