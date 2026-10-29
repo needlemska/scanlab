@@ -23,6 +23,8 @@ struct DiagnosticCheck: Identifiable {
 final class DiagnosticsModel: ObservableObject {
     @Published private(set) var checks: [DiagnosticCheck] = []
     @Published private(set) var isRunning = false
+    /// Файл с отчётом в Documents/Scans — его видно в «Файлах» и по Wi-Fi, в отличие от буфера обмена.
+    @Published private(set) var savedReport: URL?
 
     var failedCount: Int { checks.filter { !$0.passed }.count }
     var isAllGreen: Bool { !checks.isEmpty && failedCount == 0 }
@@ -38,6 +40,12 @@ final class DiagnosticsModel: ObservableObject {
             "device: \(UIDevice.current.model), iOS \(UIDevice.current.systemVersion)",
             "time: \(Self.stamp())"
         ]
+        if let info = Provisioning.load() {
+            let state = info.isExpired ? "EXPIRED" : "\(info.daysLeft) d left"
+            lines.append("signature: \(info.name), expires \(Provisioning.dateText(info.expires)) (\(state))")
+        } else {
+            lines.append("signature: no embedded.mobileprovision")
+        }
         if checks.isEmpty {
             lines.append("no checks run")
         } else {
@@ -53,6 +61,7 @@ final class DiagnosticsModel: ObservableObject {
         guard !isRunning else { return }
         isRunning = true
         var result: [DiagnosticCheck] = []
+        result.append(signatureCheck())
         result.append(storageCheck())
         result.append(spaceCheck())
         result.append(zipCheck())
@@ -60,9 +69,42 @@ final class DiagnosticsModel: ObservableObject {
         result.append(smartBoxCheck())
         checks = result
         isRunning = false
+        saveReport()
+    }
+
+    private func saveReport() {
+        let url = Paths.scans.appendingPathComponent("diagnostics-\(Self.fileStamp()).txt")
+        do {
+            try FileManager.default.createDirectory(at: Paths.scans, withIntermediateDirectories: true)
+            try report.write(to: url, atomically: true, encoding: .utf8)
+            savedReport = url
+        } catch {
+            savedReport = nil
+        }
     }
 
     // MARK: - Проверки
+
+    /// Подпись бесплатным Apple ID живёт 7 дней: показываем, сколько осталось,
+    /// чтобы переподписать приложение до того, как оно перестанет запускаться.
+    private func signatureCheck() -> DiagnosticCheck {
+        let title = "Срок подписи"
+        guard let info = Provisioning.load() else {
+            return DiagnosticCheck(title: title,
+                                   detail: "профиля в бандле нет (сборка без подписи)",
+                                   passed: true,
+                                   critical: false)
+        }
+        let team = info.teamIdentifier.map { ", команда \($0)" } ?? ""
+        if info.isExpired {
+            return DiagnosticCheck(title: title,
+                                   detail: "истекла \(Provisioning.dateText(info.expires))\(team)",
+                                   passed: false,
+                                   critical: true)
+        }
+        let detail = "до \(Provisioning.dateText(info.expires)), осталось \(info.daysLeft) дн.\(team)"
+        return DiagnosticCheck(title: title, detail: detail, passed: info.daysLeft >= 1, critical: true)
+    }
 
     private func storageCheck() -> DiagnosticCheck {
         let fileManager = FileManager.default
@@ -229,6 +271,13 @@ final class DiagnosticsModel: ObservableObject {
             }
         }
         return (points, normals, areas)
+    }
+
+    private static func fileStamp() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
     }
 
     private static func stamp() -> String {

@@ -55,6 +55,10 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -WaitDevice -Watch
 4. Вкладка **«Сканы»** → значок Wi-Fi → на ПК `python pc/fetch.py --url http://<ip>:8080 --new-only`
    → `python pc/measure.py <папка> --smart`.
 
+Первая строка отчёта, «Срок подписи», показывает дату, до которой действует подпись
+бесплатным Apple ID (7 дней). Когда останется 1 день, переподпишите тем же install.ps1:
+сканы в `Documents/Scans` не пострадают, а срок отсчитается заново.
+
 Полный протокол проверки точности — в `TESTING.md`.
 
 ## Сроки и ограничения бесплатного аккаунта

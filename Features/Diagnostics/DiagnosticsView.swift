@@ -39,8 +39,18 @@ struct DiagnosticsView: View {
                         Label(copied ? "Отчёт скопирован" : "Скопировать отчёт", systemImage: "doc.on.doc")
                     }
                     .disabled(!model.hasRun)
+
+                    if let saved = model.savedReport {
+                        ShareLink(item: saved) {
+                            Label("Отправить файл отчёта", systemImage: "square.and.arrow.up")
+                        }
+                    }
                 } footer: {
-                    Text("Отчёт — обычный текст: если что-то не работает, вставьте его в чат.")
+                    if let saved = model.savedReport {
+                        Text("Отчёт сохранён в Documents/Scans как \(saved.lastPathComponent) — его видно в «Файлах» и по Wi-Fi.")
+                    } else {
+                        Text("Отчёт — обычный текст: если что-то не работает, вставьте его в чат.")
+                    }
                 }
             }
             .navigationTitle("Диагностика")
