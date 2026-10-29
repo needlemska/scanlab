@@ -1,0 +1,272 @@
+import SwiftUI
+import RealityKit
+import UIKit
+
+/// Сессия Object Capture (iOS 17): приложение само подсказывает, как обходить объект,
+/// и сохраняет кадры прямо в папку скана. Дальше — тот же `PhotogramModel`, что и в
+/// «Библиотеке», поэтому модель собирается на телефоне.
+@MainActor
+final class CaptureSessionModel: ObservableObject {
+    let session = ObjectCaptureSession()
+
+    @Published private(set) var state: ObjectCaptureSession.CaptureState = .initializing
+    @Published private(set) var shots = 0
+    @Published private(set) var passDone = false
+    @Published private(set) var isPaused = false
+    @Published private(set) var folder: URL?
+    @Published var message: String?
+
+    private var watching = false
+
+    var canBeginCapture: Bool {
+        if case .detecting = state { return true }
+        return false
+    }
+
+    var isCapturing: Bool {
+        if case .capturing = state { return true }
+        return false
+    }
+
+    var isCompleted: Bool {
+        if case .completed = state { return true }
+        return false
+    }
+
+    var hasFailed: Bool {
+        if case .failed = state { return true }
+        return false
+    }
+
+    /// Папка скана создаётся сразу: кадры пишутся в Documents, значит переживут переподпись.
+    func start() {
+        guard folder == nil, !watching else { return }
+        let target = Paths.newScanDirectory(prefix: "photo3d")
+        do {
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        } catch {
+            message = "Не удалось создать папку: \(error.localizedDescription)"
+            return
+        }
+        var configuration = ObjectCaptureSession.Configuration()
+        configuration.checkpointDirectory = nil
+        session.start(imagesDirectory: target, configuration: configuration)
+        folder = target
+        session.startDetecting()
+        watch()
+    }
+
+    func beginCapture() {
+        session.startCapturing()
+    }
+
+    func pause() {
+        session.pause()
+        isPaused = true
+    }
+
+    func resume() {
+        session.resume()
+        isPaused = false
+    }
+
+    func flip() {
+        session.beginNewScanPassAfterFlip()
+        passDone = false
+    }
+
+    func shot() {
+        guard session.canRequestImageCapture else { return }
+        session.requestImageCapture()
+    }
+
+    func finish() {
+        session.finish()
+    }
+
+    func cancel() {
+        session.cancel()
+        message = "Сканирование отменено"
+        folder = nil
+        watching = false
+        state = .initializing
+        shots = 0
+        passDone = false
+        isPaused = false
+    }
+
+    private func watch() {
+        watching = true
+        let current = session
+        Task { @MainActor in
+            for await value in current.stateUpdates {
+                self.state = value
+            }
+        }
+        Task { @MainActor in
+            for await value in current.numberOfShotsTakenUpdates {
+                self.shots = value
+            }
+        }
+        Task { @MainActor in
+            for await value in current.userCompletedScanPassUpdates {
+                self.passDone = value
+            }
+        }
+    }
+}
+
+struct CaptureTabView: View {
+    @StateObject private var model = CaptureSessionModel()
+    @StateObject private var photogram = PhotogramModel()
+
+    var body: some View {
+        Group {
+            if ObjectCaptureSession.isSupported {
+                capture
+            } else {
+                unsupported
+            }
+        }
+    }
+
+    private var unsupported: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.largeTitle)
+                .foregroundStyle(.orange)
+            Text("Object Capture недоступен на этом устройстве")
+                .font(.headline)
+            Text("Нужен iPhone или iPad с LiDAR. Для остальных есть «LiDAR» и «Фото».")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(24)
+    }
+
+    private var capture: some View {
+        ZStack(alignment: .bottom) {
+            ObjectCaptureView(session: model.session)
+                .ignoresSafeArea()
+
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    chip(text: stateText)
+                    if model.shots > 0 {
+                        chip(text: "\(model.shots) кадров")
+                    }
+                    if model.passDone {
+                        chip(text: "круг пройден", color: .green)
+                    }
+                }
+
+                if let message = model.message {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if photogram.isRunning {
+                    ProgressView(value: photogram.progress)
+                        .tint(.green)
+                    Text(photogram.stage)
+                        .font(.caption)
+                } else if let message = photogram.message {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if model.isCompleted {
+                    Button {
+                        guard let folder = model.folder else { return }
+                        Task { await photogram.run(folder: folder) }
+                    } label: {
+                        Label("Собрать 3D", systemImage: "cube.transparent")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(photogram.isRunning)
+                }
+
+                controls
+            }
+            .padding(14)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        }
+        .task { model.start() }
+    }
+
+    @ViewBuilder
+    private var controls: some View {
+        HStack(spacing: 10) {
+            if model.canBeginCapture {
+                Button("Начать съёмку") { model.beginCapture() }
+                    .buttonStyle(.borderedProminent)
+            }
+
+            if model.isCapturing {
+                if model.isPaused {
+                    Button("Продолжить") { model.resume() }
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Пауза") { model.pause() }
+                        .buttonStyle(.bordered)
+                }
+                if model.passDone {
+                    Button("Перевернул") { model.flip() }
+                        .buttonStyle(.bordered)
+                }
+                Button("Стоп") { model.finish() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+            }
+
+            if model.hasFailed {
+                Button("Заново") { model.cancel() }
+                    .buttonStyle(.borderedProminent)
+            }
+
+            if model.folder != nil && !model.isCompleted {
+                Button(role: .destructive) {
+                    model.cancel()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+    }
+
+    private func chip(text: String, color: Color = .white) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.black.opacity(0.45), in: Capsule())
+    }
+
+    private var stateText: String {
+        switch model.state {
+        case .initializing:
+            return "Готовлю камеру…"
+        case .ready:
+            return "Наведите камеру на объект"
+        case .detecting:
+            return "Выберите объект в рамке"
+        case .capturing:
+            return model.isPaused ? "Пауза" : "Медленно обходите объект"
+        case .finishing:
+            return "Сохраняю кадры…"
+        case .completed:
+            return "Готово: \(model.shots) кадров"
+        case .failed(let error):
+            return "Ошибка: \(error.localizedDescription)"
+        }
+    }
+}

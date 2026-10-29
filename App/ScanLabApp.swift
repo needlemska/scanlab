@@ -19,6 +19,9 @@ struct RootView: View {
             ProCaptureView()
                 .tabItem { Label("Фото", systemImage: "camera.aperture") }
 
+            CaptureTabView()
+                .tabItem { Label("3D", systemImage: "viewfinder") }
+
             LibraryView()
                 .tabItem { Label("Сканы", systemImage: "folder") }
 
