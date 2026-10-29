@@ -5,11 +5,26 @@
 
 Файл `ScanLab-unsigned.ipa` **не подписан** — его подписывает Sideloadly вашим Apple ID в момент установки.
 
+## Быстрая проверка и запуск
+
+В папке `scanlab/` лежит `install.ps1`: он проверяет IPA (размер, sha256, версию из Info.plist),
+Sideloadly, службу Apple, видимость телефона по USB, запись сопряжения — и, если всё в порядке,
+открывает Sideloadly с готовым IPA.
+
+```powershell
+# только диагностика (ничего не запускает)
+powershell -ExecutionPolicy Bypass -File install.ps1 -Check
+
+# проверка + запуск Sideloadly, затем ждать установку 10 минут
+powershell -ExecutionPolicy Bypass -File install.ps1 -Watch
+```
+
+
 ## Что уже готово
 
 - IPA собран GitHub Actions, содержит `Payload/ScanLab.app/ScanLab` (arm64), `MinimumOSVersion 17.0`, `com.scanlab.app`.
-- iPhone определяется по USB (`Apple iPhone`, `Apple Mobile Device USB Composite Device`).
-- Sideloadly 0.60 установлен: `%LOCALAPPDATA%\Sideloadly\sideloadly.exe`.
+- iPhone уже спарен с этим ПК (запись сопряжения `00008130-000A44C01443001C`, iPhone 15 Pro Max) — для установки его нужно подключить кабелем.
+- Sideloadly 0.71.2: `%LOCALAPPDATA%\Sideloadly\sideloadly.exe`.
 - Apple Devices + служба `Apple Mobile Device Service` работают.
 
 ## Шаги
