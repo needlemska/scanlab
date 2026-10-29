@@ -59,8 +59,14 @@ def find_mesh(root: str, exclude: str | None = None) -> str:
             f"No mesh ({', '.join(MESH_EXT)}) found in {root}.\n"
             "A ZIP with frames is a photogrammetry set - build the model first (see PIPELINE.md)."
         )
-    candidates.sort(reverse=True)
-    return candidates[0][1]
+    # Приложение кладёт рядом mesh.obj и mesh.stl. Бинарный STL читается только
+    # через open3d, а OBJ — всегда, поэтому текстовые форматы идут первыми.
+    preferred = [c for c in candidates if c[1].lower().endswith(".obj")]
+    if not preferred:
+        preferred = [c for c in candidates if not c[1].lower().endswith(".stl")]
+    pool = preferred or candidates
+    pool.sort(reverse=True)
+    return pool[0][1]
 
 
 # --------------------------------------------------------------------------- #

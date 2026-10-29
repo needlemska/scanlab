@@ -255,7 +255,15 @@ final class MeshScanSession: NSObject, ObservableObject {
                 let objURL = directory.appendingPathComponent("mesh.obj")
                 let stats = try MeshExporter.exportOBJ(anchors: snapshot, to: objURL, scale: factor)
 
+                // STL рядом с OBJ: слайсеры открывают его напрямую, без конвертации.
+                let stlURL = directory.appendingPathComponent("mesh.stl")
+                let stlStats = try? MeshExporter.exportSTL(anchors: snapshot, to: stlURL, scale: factor)
+
                 var extra: [String: Any] = [:]
+                if let stlStats = stlStats {
+                    extra["stlFile"] = "mesh.stl"
+                    extra["stlTriangles"] = stlStats.faces
+                }
                 if let knownMM = knownMM, let measuredMM = measuredMM, abs(factor - 1) > 0.0001 {
                     extra["scaleFactor"] = Double(factor)
                     extra["calibrationKnownMM"] = knownMM
