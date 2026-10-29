@@ -102,6 +102,18 @@ def build_steps(colmap: str, dataset: str, max_image_size: int) -> list[tuple]:
             ],
         ),
         (
+            # Текстовый экспорт нужен, чтобы прочитать центры камер для масштаба по ARKit
+            # (scale_from_poses.py бинарный формат не разбирает).
+            "model_txt",
+            os.path.join(sparse, "0-txt", "images.txt"),
+            [
+                colmap, "model_converter",
+                "--input_path", os.path.join(sparse, "0"),
+                "--output_path", os.path.join(sparse, "0-txt"),
+                "--output_type", "TXT",
+            ],
+        ),
+        (
             "undistort",
             os.path.join(dense, "images"),
             [
@@ -195,6 +207,51 @@ def describe_shots(dataset: str) -> dict:
     }
 
 
+def resolve_scale(args, dataset: str, info: dict) -> float:
+    """Масштаб реконструкции: сначала по позам ARKit, иначе оставляем как есть."""
+    if args.scale > 0:
+        info["scale"] = {"value": args.scale, "source": "cli"}
+        return args.scale
+    if args.no_scale_from_poses:
+        return 1.0
+
+    shots = os.path.join(dataset, "shots.json")
+    model_dir = os.path.join(dataset, "sparse", "0-txt")
+    if not (os.path.isfile(shots) and os.path.isdir(model_dir)):
+        return 1.0
+
+    try:
+        import scale_from_poses as sfp
+
+        images = sfp.read_images_txt(sfp.find_images_txt(model_dir))
+        poses = sfp.read_arkit_shots(shots)
+        pairs = sfp.collect_pairs(images, poses)
+        if len(pairs) < sfp.MIN_PAIRS:
+            log(f"[scale] matched cameras: {len(pairs)} < {sfp.MIN_PAIRS}, scale untouched")
+            log("        (поворотный стол? камера стоит — совмещать траектории нечем)")
+            return 1.0
+        result = sfp.robust_scale(pairs)
+    except Exception as exc:  # noqa: BLE001 — пайплайн не должен падать из-за масштаба
+        log(f"[scale] failed: {exc}")
+        return 1.0
+
+    scale = float(result["scale"])
+    if not (sfp.SCALE_LIMITS[0] <= scale <= sfp.SCALE_LIMITS[1]):
+        log(f"[scale] implausible x{scale:.4f}, ignored")
+        return 1.0
+
+    info["scale"] = {
+        "value": round(scale, 6),
+        "source": "arkit-poses",
+        "pairs": result["pairs"],
+        "inliers": result["inliers"],
+        "median_residual_m": result["median_residual_m"],
+    }
+    log(f"[scale] x{scale:.5f} from ARKit poses "
+        f"(inliers {result['inliers']}/{result['pairs']})")
+    return scale
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="COLMAP-пайплайн для снимков ScanLab")
     parser.add_argument("input", help="ZIP или папка с img_*.jpg из вкладки «Профи-фото»")
@@ -205,6 +262,10 @@ def main() -> int:
     parser.add_argument("--fit-mm", type=float, default=0.0,
                         help="подогнать масштаб после реконструкции (мм по оси --fit-axis)")
     parser.add_argument("--fit-axis", choices=("x", "y", "z"), default="y")
+    parser.add_argument("--scale", type=float, default=0.0,
+                        help="готовый коэффициент масштаба (перебивает расчёт по позам ARKit)")
+    parser.add_argument("--no-scale-from-poses", action="store_true",
+                        help="не восстанавливать масштаб по позам ARKit (нужно для поворотного стола)")
     parser.add_argument("--no-measure", action="store_true", help="не запускать measure.py в конце")
     parser.add_argument("--dry-run", action="store_true", help="только напечатать команды")
     args = parser.parse_args()
@@ -239,11 +300,16 @@ def main() -> int:
         mesh = os.path.join(dataset, "dense", "meshed-poisson.ply")
         log(f"Mesh: {mesh}")
 
+        scale = 1.0
+        if not args.dry_run:
+            scale = resolve_scale(args, dataset, info)
         if args.fit_mm > 0 and not args.dry_run:
             info["fit"] = {"mm": args.fit_mm, "axis": args.fit_axis}
         if not args.no_measure and not args.dry_run:
             measure = [sys.executable, os.path.join(HERE, "measure.py"), mesh,
                        "--out", os.path.join(args.work, "measure")]
+            if scale != 1.0:
+                measure += ["--scale", f"{scale:.6f}"]
             if args.fit_mm > 0:
                 measure += ["--fit-mm", str(args.fit_mm), "--fit-axis", args.fit_axis]
             log("[measure]")
