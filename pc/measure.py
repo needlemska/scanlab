@@ -326,6 +326,37 @@ def write_stl(path: str, v: np.ndarray, f: np.ndarray) -> None:
 # CLI
 # --------------------------------------------------------------------------- #
 
+def read_meta_calibration(mesh_path: str | None, source_root: str) -> tuple[float, dict | None]:
+    """Калибровка, которую приложение записало в meta.json (эталон в мм).
+
+    Приложение считает поправку по линейке и кладёт её в meta.json как scaleFactor.
+    Если файл есть, масштаб применяется сам — вручную --fit-mm нужен только когда
+    калибровку в приложении не делали.
+    """
+    candidates = []
+    if mesh_path:
+        candidates.append(os.path.join(os.path.dirname(mesh_path), "meta.json"))
+    candidates.append(os.path.join(source_root, "meta.json"))
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                meta = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        factor = meta.get("scaleFactor")
+        if not isinstance(factor, (int, float)) or float(factor) <= 0:
+            continue
+        return float(factor), {
+            "source": os.path.basename(path),
+            "factor": round(float(factor), 6),
+            "known_mm": meta.get("calibrationKnownMM"),
+            "measured_mm": meta.get("calibrationMeasuredMM"),
+        }
+    return 1.0, None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Замер модели и экспорт STL в мм")
     parser.add_argument("input", help="ZIP, папка, .obj/.ply/.stl")
@@ -364,7 +395,11 @@ def main() -> int:
             mesh_path = find_mesh(source, exclude=args.out)
         verts, faces, engine = load(mesh_path)
         verts, faces = clean(verts, faces)
-        verts = verts * args.scale
+
+        meta_scale, meta_note = read_meta_calibration(mesh_path, source)
+        use_meta = meta_note is not None and args.scale == 1.0 and args.units == "m"
+        total_scale = args.scale * (meta_scale if use_meta else 1.0)
+        verts = verts * total_scale
 
         fit = None
         if args.fit_mm > 0:
@@ -394,7 +429,8 @@ def main() -> int:
             "watertight": info["watertight"],
             "components": info["components"],
             "largest_component_share": round(info["largest_share"], 3),
-            "scale_applied": args.scale,
+            "scale_applied": round(total_scale, 6),
+            "calibration": meta_note if use_meta else None,
             "fit_applied": fit,
             "size_mm_smart": [round(float(e) * 1000.0, 2) for e in smart[0]] if smart else None,
             "smart_method": smart[1] if smart else None,
@@ -415,6 +451,13 @@ def main() -> int:
             return 0
 
         print(f"Source:          {data['source']} ({engine})")
+        if use_meta:
+            known = meta_note.get("known_mm")
+            measured = meta_note.get("measured_mm")
+            extra = ""
+            if known and measured:
+                extra = f", etalon {known} mm vs measured {measured} mm"
+            print(f"Calibration:     x{meta_note['factor']:.4f} from {meta_note['source']}{extra}")
         if fit:
             print(
                 f"Fit:             {fit['axis']} = {fit['before_mm']} mm -> "

@@ -1,0 +1,1 @@
+{ "kind": "lidar", "vertices": 8, "faces": 12, "scaleFactor": 1.05, "calibrationKnownMM": 100.0, "calibrationMeasuredMM": 95.24 }
