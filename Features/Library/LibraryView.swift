@@ -11,12 +11,17 @@ struct LibraryView: View {
     @State private var shareItem: ShareItem?
     @State private var isWorking = false
     @StateObject private var wifi = FileServerModel()
+    @StateObject private var photogram = PhotogramModel()
 
     var body: some View {
         NavigationStack {
             List {
                 if wifi.running || wifi.message != nil {
                     wifiRow
+                }
+
+                if photogram.isRunning || photogram.message != nil {
+                    photogramRow
                 }
 
                 if items.isEmpty {
@@ -93,6 +98,39 @@ struct LibraryView: View {
         .padding(.vertical, 4)
     }
 
+    @ViewBuilder
+    private var photogramRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: "cube.transparent")
+                    .foregroundStyle(photogram.isRunning ? .orange : .secondary)
+                Text(photogram.isRunning
+                     ? "Фотограмметрия: \(photogram.folderName ?? "")"
+                     : "Фотограмметрия")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if photogram.isRunning {
+                    Text("\(Int(photogram.progress * 100)) %")
+                        .font(.caption.monospacedDigit())
+                }
+            }
+
+            if photogram.isRunning {
+                ProgressView(value: min(max(photogram.progress, 0), 1))
+                Text(photogram.stage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let message = photogram.message {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
     private func row(for item: ScanRecord) -> some View {
         HStack(spacing: 12) {
             Image(systemName: item.kind == "lidar" ? "cube.transparent" : "photo.on.rectangle.angled")
@@ -120,6 +158,14 @@ struct LibraryView: View {
             .buttonStyle(.borderless)
         }
         .padding(.vertical, 2)
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button {
+                runPhotogram(item)
+            } label: {
+                Label("3D из фото", systemImage: "cube.transparent")
+            }
+            .tint(.orange)
+        }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 delete(item)
@@ -162,6 +208,14 @@ struct LibraryView: View {
                 }
                 isWorking = false
             }
+        }
+    }
+
+    private func runPhotogram(_ item: ScanRecord) {
+        guard !photogram.isRunning else { return }
+        Task {
+            await photogram.run(folder: item.url)
+            reload()
         }
     }
 
