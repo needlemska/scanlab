@@ -97,6 +97,16 @@ git fetch origin models; git ls-tree -r --long FETCH_HEAD | Select-String mlpack
 Пока модель не нужна: то, что мы реально используем, — системные API (Vision,
 ARKit, `PhotogrammetrySession`), подробности в [AI.md](AI.md).
 
+## 1г. Стенд: что проверить одной командой
+
+```powershell
+powershell -File tools\devstack.ps1      # git, python, swift, Sideloadly, устройство
+python tools\tests\test_calibration.py   # ПК-часть: масштабы и стол, ~1 с
+```
+
+Что из этого работает без прав администратора, а что требует установки — в
+[DEVSTACK.md](DEVSTACK.md).
+
 ---
 
 ## 2. Установка на iPhone (бесплатный Apple ID)

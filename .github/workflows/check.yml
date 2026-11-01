@@ -1,0 +1,39 @@
+name: check
+
+# Быстрые проверки без сборки: Swift-логика и ПК-часть.
+# Нужны как раз для стендов без Mac и без локального Swift — там это единственный
+# способ поймать регресс до установки на телефон.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  swift-logic:
+    name: Swift logic
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile and run logic checks
+        run: |
+          swiftc -O Core/ScanCoach.swift Core/ReferenceRect.swift tools/logic/main.swift -o logic
+          ./logic
+
+  python:
+    name: Python (pc/)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install numpy
+        run: python -m pip install --upgrade pip numpy
+
+      - name: Calibration tests
+        run: python tools/tests/test_calibration.py
