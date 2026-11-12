@@ -39,18 +39,7 @@ jobs:
         run: |
           set -x
           mkdir -p sim-out
-          DEV=$(python3 - <<'PY'
-import json, subprocess
-data = json.loads(subprocess.check_output(
-    ["xcrun", "simctl", "list", "devices", "available", "-j"]))
-for runtime, devices in data["devices"].items():
-    for dev in devices:
-        if dev["name"].startswith("iPhone"):
-            print(dev["udid"])
-            raise SystemExit
-raise SystemExit("no iPhone simulator")
-PY
-)
+          DEV=$(python3 .github/scripts/pick_sim.py)
           echo "DEV=$DEV" >> "$GITHUB_ENV"
           xcrun simctl boot "$DEV" || true
           xcrun simctl bootstatus "$DEV" -b
