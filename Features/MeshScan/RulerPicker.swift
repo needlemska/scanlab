@@ -32,7 +32,15 @@ enum RulerPicker {
 
     /// То же самое, но точка задана в пикселях полного кадра камеры (начало — левый
     /// верхний угол). Нужно распознавателю эталона: Vision отдаёт углы в долях кадра.
-    static func worldPoint(imagePoint: CGPoint, frame: ARFrame) -> SIMD3<Float>? {
+    ///
+    /// `minConfidence` включают там, где важна точность, а не «хоть что-нибудь»:
+    /// на кромке листа LiDAR часто отдаёт низкую достоверность, и угол уезжает на
+    /// сантиметры — как раз это и портит калибровку по эталону.
+    static func worldPoint(
+        imagePoint: CGPoint,
+        frame: ARFrame,
+        minConfidence: ARConfidenceLevel? = nil
+    ) -> SIMD3<Float>? {
         guard let sceneDepth = frame.sceneDepth else { return nil }
 
         let depthMap = sceneDepth.depthMap
@@ -51,6 +59,11 @@ enum RulerPicker {
         let rawY = Int(normalizedY * CGFloat(depthHeight))
         let depthX = min(max(rawX, 0), depthWidth - 1)
         let depthY = min(max(rawY, 0), depthHeight - 1)
+
+        if let minConfidence {
+            guard let level = confidenceLevel(sceneDepth.confidenceMap, x: depthX, y: depthY),
+                  level.rawValue >= minConfidence.rawValue else { return nil }
+        }
 
         guard let distance = medianDepth(depthMap, x: depthX, y: depthY),
               distance > 0.05, distance < 8.0 else { return nil }
@@ -102,6 +115,43 @@ enum RulerPicker {
         }
 
         guard !values.isEmpty else { return nil }
-        return values.sorted()[values.count / 2]
+        let sorted = values.sorted()
+        if sorted.count % 2 == 1 { return sorted[sorted.count / 2] }
+        // Чётное число соседей: берём середину интервала, иначе медиана смещается
+        // к дальнему краю — а на кромке предмета дальний край это уже фон.
+        return (sorted[sorted.count / 2 - 1] + sorted[sorted.count / 2]) / 2
+    }
+
+    /// Достоверность глубины в окрестности 3×3: берём минимум, потому что один
+    /// «уверенный» пиксель рядом с кромкой ещё не делает уверенным сам угол.
+    private static func confidenceLevel(
+        _ map: CVPixelBuffer?,
+        x: Int,
+        y: Int
+    ) -> ARConfidenceLevel? {
+        guard let map else { return nil }
+        CVPixelBufferLockBaseAddress(map, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(map, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(map) else { return nil }
+
+        let width = CVPixelBufferGetWidth(map)
+        let height = CVPixelBufferGetHeight(map)
+        let rowBytes = CVPixelBufferGetBytesPerRow(map)
+        var lowest: UInt8 = .max
+
+        for dy in -1...1 {
+            for dx in -1...1 {
+                let px = x + dx
+                let py = y + dy
+                guard px >= 0, px < width, py >= 0, py < height else { continue }
+                let row = base
+                    .advanced(by: py * rowBytes)
+                    .assumingMemoryBound(to: UInt8.self)
+                lowest = min(lowest, row[px])
+            }
+        }
+
+        guard lowest != .max else { return nil }
+        return ARConfidenceLevel(rawValue: Int(lowest))
     }
 }

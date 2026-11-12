@@ -29,6 +29,7 @@ enum ReferenceScanner {
         case noDepth
         case degenerate
         case wrongShape(ReferenceKind)
+        case implausibleScale(Float)
 
         var message: String {
             switch self {
@@ -44,6 +45,12 @@ enum ReferenceScanner {
                 return "Углы эталона схлопнулись — наведите камеру ровнее"
             case .wrongShape(let kind):
                 return "Прямоугольник не похож на \(kind.title): проверьте эталон и ракурс"
+            case .implausibleScale(let factor):
+                return String(
+                    format: "Поправка ×%.2f — не похоже на выбранный эталон: "
+                        + "проверьте пункт меню и положите предмет ровнее",
+                    factor
+                )
             }
         }
     }
@@ -54,8 +61,11 @@ enum ReferenceScanner {
         guard let frame else { return .failure(.noFrame) }
 
         let request = VNDetectRectanglesRequest()
+        // Соотношение сторон задаётся как ширина/высота, а эталон можно положить
+        // как угодно: у A4 это 0,71 в одном положении и 1,41 в другом. Прежний
+        // потолок 1,0 отбрасывал повёрнутый лист ещё до проверки формы.
         request.minimumAspectRatio = 0.15
-        request.maximumAspectRatio = 1.0
+        request.maximumAspectRatio = 3.0
         request.quadratureTolerance = 30
         request.minimumSize = 0.12
         request.minimumConfidence = 0.4
@@ -78,7 +88,7 @@ enum ReferenceScanner {
         guard let best = observations.max(by: { $0.confidence < $1.confidence }) else {
             return .failure(.noRectangle)
         }
-        let confidence = observations.first?.confidence ?? best.confidence
+        let confidence = best.confidence
 
         let resolution = frame.camera.imageResolution
         guard resolution.width > 0, resolution.height > 0 else { return .failure(.noFrame) }
@@ -99,7 +109,14 @@ enum ReferenceScanner {
         var world: [SIMD3<Float>] = []
         world.reserveCapacity(4)
         for corner in pixelCorners {
-            guard let point = RulerPicker.worldPoint(imagePoint: corner, frame: frame) else {
+            // Угол листа — это кромка: LiDAR там часто отдаёт низкую достоверность,
+            // и без фильтра сторона уезжает на сантиметры. Лучше честно попросить
+            // пользователя подойти ближе, чем записать случайную поправку.
+            guard let point = RulerPicker.worldPoint(
+                imagePoint: corner,
+                frame: frame,
+                minConfidence: .medium
+            ) else {
                 return .failure(.noDepth)
             }
             world.append(point)
@@ -109,10 +126,13 @@ enum ReferenceScanner {
         guard let factor = ReferenceRect.factor(measured: sides, kind: kind) else {
             return .failure(.wrongShape(kind))
         }
+        guard let automatic = ReferenceRect.autoFactor(measured: sides, kind: kind) else {
+            return .failure(.implausibleScale(factor))
+        }
 
         return .success(Detection(
             corners: world,
-            factor: factor,
+            factor: automatic,
             measuredMM: sqrt(sides.a * sides.b) * 1000,
             nominalMM: ReferenceRect.nominalSideMM(kind),
             confidence: confidence

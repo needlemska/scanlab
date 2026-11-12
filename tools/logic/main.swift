@@ -140,8 +140,31 @@ check("монета: поправка 1.0", coinFactor != nil && abs(coinFactor!
 let squareSides = ReferenceRect.sides(rect(width: 0.100, height: 0.100))
 check("квадрат не принят за A4", squareSides.flatMap { ReferenceRect.factor(measured: $0, kind: .a4) } == nil)
 
-// Мусор: три угла, нулевая сторона, абсурдно большой прямоугольник.
-check("три угла отбракованы", ReferenceRect.sides([.zero, SIMD3<Float>(1, 0, 0), SIMD3<Float>(0, 1, 0)]) == nil)
+// A4 принят за банковскую карту: соотношение сторон похоже (1,41 против 1,59),
+// а площадь отличается в 13,5 раза. Форма такую подмену не ловит — обязан поймать
+// предел правдоподобной поправки, иначе весь меш «уменьшится» втрое.
+let a4AsCard = a4Sides.flatMap { ReferenceRect.factor(measured: $0, kind: .card) }
+check("A4 как карта: форма проходит", a4AsCard != nil, "\(String(describing: a4AsCard))")
+check("A4 как карта: автокалибровка отвергает",
+      a4Sides.flatMap { ReferenceRect.autoFactor(measured: $0, kind: .card) } == nil)
+
+// Карта, которую LiDAR измерил на 2 % больше: поправка 0,98 — рабочая.
+let cardSides = ReferenceRect.sides(rect(width: 0.0873, height: 0.05506))
+let cardAuto = cardSides.flatMap { ReferenceRect.autoFactor(measured: $0, kind: .card) }
+check("карта +2 %: поправка принята", cardAuto != nil && abs(cardAuto! - 1 / 1.02) < 0.005,
+      "\(String(describing: cardAuto))")
+
+// Систематическая ошибка LiDAR в 20 % — ещё калибруется (в реальности бывает 1–3 %).
+let a4OffSides = ReferenceRect.sides(rect(width: 0.210 / 1.2, height: 0.297 / 1.2))
+let a4OffAuto = a4OffSides.flatMap { ReferenceRect.autoFactor(measured: $0, kind: .a4) }
+check("A4 −20 %: поправка принята", a4OffAuto != nil && abs(a4OffAuto! - 1.2) < 0.01,
+      "\(String(describing: a4OffAuto))")
+
+// Совсем мимо: лист A4 «измерен» в 30 раз больше (ошибка выбора точки) — отказ.
+let a4HugeSides = ReferenceRect.sides(rect(width: 6.3, height: 8.9))
+check("A4 в 30 раз: отказ", a4HugeSides.flatMap { ReferenceRect.autoFactor(measured: $0, kind: .a4) } == nil)
+
+// Мусор: три угла, нулевая сторона, абсурдно большой прямоугольник.check("три угла отбракованы", ReferenceRect.sides([.zero, SIMD3<Float>(1, 0, 0), SIMD3<Float>(0, 1, 0)]) == nil)
 check("нулевая сторона отбракована", ReferenceRect.sides(rect(width: 0.001, height: 0.297)) == nil)
 let giantSides = ReferenceRect.sides(rect(width: 21, height: 29.7))
 check("гигантский прямоугольник отбракован", giantSides.flatMap { ReferenceRect.factor(measured: $0, kind: .a4) } == nil)
