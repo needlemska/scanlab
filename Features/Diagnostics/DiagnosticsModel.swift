@@ -74,11 +74,16 @@ final class DiagnosticsModel: ObservableObject {
     }
 
     private func saveReport() {
-        let url = Paths.scans.appendingPathComponent("diagnostics-\(Self.fileStamp()).txt")
+        let stamped = Paths.scans.appendingPathComponent("diagnostics-\(Self.fileStamp()).txt")
+        // Вторая копия с постоянным именем: по ней удобно проверять с компьютера
+        // (`apps pull … Scans/diagnostics-latest.txt`), не угадывая метку времени.
+        let latest = Paths.scans.appendingPathComponent("diagnostics-latest.txt")
         do {
             try FileManager.default.createDirectory(at: Paths.scans, withIntermediateDirectories: true)
-            try report.write(to: url, atomically: true, encoding: .utf8)
-            savedReport = url
+            let text = report
+            try text.write(to: stamped, atomically: true, encoding: .utf8)
+            try? text.write(to: latest, atomically: true, encoding: .utf8)
+            savedReport = stamped
         } catch {
             savedReport = nil
         }

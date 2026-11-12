@@ -15,10 +15,14 @@ struct RootView: View {
 
     /// Начальная вкладка. Обычно 0; в симуляторе можно переопределить переменной
     /// окружения `SCANLAB_TAB` (0…4), чтобы снять экран конкретной вкладки без тапов.
+    /// `SCANLAB_DIAGNOSE=1` открывает «Тест» и запускает самопроверку в файл.
     static var initialTab: Int {
         if let raw = ProcessInfo.processInfo.environment["SCANLAB_TAB"],
            let value = Int(raw), (0...4).contains(value) {
             return value
+        }
+        if ProcessInfo.processInfo.environment["SCANLAB_DIAGNOSE"] == "1" {
+            return 4
         }
         return 0
     }

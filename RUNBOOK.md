@@ -110,9 +110,19 @@ $b = "com.scanlab.app.3CB3DRNXR2"
 & $py -m pymobiledevice3 apps pull $b Scans .\pulled --documents --udid $udid      # Documents/Scans
 ```
 
+Самопроверку можно прогнать и забрать файлом, без тапов и буфера обмена (0.15.4+):
+
+```powershell
+& $py -m pymobiledevice3 developer dvt launch $b --udid $udid --env "SCANLAB_DIAGNOSE=1"
+Start-Sleep -Seconds 8
+& $py -m pymobiledevice3 apps pull $b Scans\diagnostics-latest.txt .\diag.txt --documents --udid $udid
+Get-Content .\diag.txt
+```
+
 Что проверено 12.11.2026 на 0.15.3 (build 19): `process-id-for-bundle-id` вернул `3096`,
 `launch` — `Process launched with pid 3110`, `screenshot` снял вкладку LiDAR с активной камерой
 и `v0.15.3 (19)` в шапке, `apps pull … Scans` ответил `OBJECT_NOT_FOUND` (сканов ещё нет).
+Все вкладки, кроме «Фото», сняты с живого экрана (`SCANLAB_TAB=0,2,3,4`).
 
 Границы: DVT **не нажимает** на экран (нет UI-автоматизации), а `screenshot` на заблокированном
 телефоне отдаёт локскрин (файл 8–9 МБ вместо 100–400 КБ) — сначала разблокировать.

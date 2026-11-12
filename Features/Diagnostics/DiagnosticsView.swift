@@ -54,6 +54,16 @@ struct DiagnosticsView: View {
                 }
             }
             .navigationTitle("Диагностика")
+            .task {
+                // Автозапуск для проверки с компьютера: DVT-запуск с
+                // `--env SCANLAB_DIAGNOSE=1` прогоняет проверки и кладёт отчёт
+                // в Documents/Scans, откуда его забирает `apps pull` — без тапов
+                // на экране и без буфера обмена.
+                if ProcessInfo.processInfo.environment["SCANLAB_DIAGNOSE"] == "1",
+                   !model.hasRun, !model.isRunning {
+                    model.run()
+                }
+            }
         }
     }
 
