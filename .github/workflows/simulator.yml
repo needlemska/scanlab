@@ -46,12 +46,20 @@ jobs:
           APP=$(ls -d build/Build/Products/Debug-iphonesimulator/*.app | head -1)
           echo "APP=$APP"
           xcrun simctl install "$DEV" "$APP"
+          # Первый запуск: проверяем, что процесс вообще стартует и живёт.
           xcrun simctl launch "$DEV" com.scanlab.app || echo "LAUNCH_FAILED"
           sleep 12
           xcrun simctl io "$DEV" screenshot sim-out/shot-1-start.png
           xcrun simctl spawn "$DEV" launchctl list | grep -i scanlab || echo "NOT_RUNNING"
-          sleep 5
-          xcrun simctl io "$DEV" screenshot sim-out/shot-2-after.png
+          # Каждая вкладка: перезапуск с SCANLAB_TAB=0…4 и скриншот.
+          for t in 0 1 2 3 4; do
+            xcrun simctl terminate "$DEV" com.scanlab.app >/dev/null 2>&1 || true
+            sleep 1
+            SIMCTL_CHILD_SCANLAB_TAB=$t xcrun simctl launch "$DEV" com.scanlab.app \
+              || echo "LAUNCH_FAILED_TAB_$t"
+            sleep 6
+            xcrun simctl io "$DEV" screenshot "sim-out/tab-$t.png"
+          done
 
       - name: Логи и падения
         if: always()
