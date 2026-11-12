@@ -8,6 +8,8 @@
 
     Команды:
       status                 устройство, установленная версия, срок профиля, вердикт
+      install [-Ipa path]    подписать и поставить IPA через Sideloadly (без мыши)
+      selfcheck              прогнать самопроверку на телефоне и прочитать отчёт
       launch                 запустить ScanLab через DVT
       logs [-Seconds 20]     syslog live с фильтром по ScanLab
       pull [-Remote] [-Out]  забрать каталог из Documents приложения
@@ -15,7 +17,7 @@
       ipa                    свежий ScanLab-unsigned.ipa из ветки builds
       help
 
-    Пример:  .\tools\ios.ps1 status
+    Пример:  .\tools\ios.ps1 install -Ipa .\dist\ScanLab-0.15.4.ipa
 #>
 param(
     [Parameter(Position = 0)][string]$Command = "status",
@@ -23,7 +25,8 @@ param(
     [string]$BundleId = "com.scanlab.app.3CB3DRNXR2",
     [int]$Seconds = 20,
     [string]$Remote = "Documents/Scans",
-    [string]$Out = ".\pulled"
+    [string]$Out = ".\pulled",
+    [string]$Ipa = ".\ScanLab-unsigned.ipa"
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,19 +49,33 @@ function Show-Help {
 tools\ios.ps1 <команда> [параметры]
 
   status                 состояние устройства, версия приложения, срок профиля
+  install                подписать и поставить IPA через Sideloadly (-Ipa путь)
+  selfcheck              самопроверка на телефоне + чтение отчёта
   launch                 запуск ScanLab (developer dvt launch)
   logs                   живые логи с фильтром (-Seconds, -Out)
   pull                   забрать $Remote в $Out
   query                  метаданные приложения
   ipa                    скачать свежий IPA из ветки builds
 
-Параметры: -Udid, -BundleId, -Seconds, -Remote, -Out
+Параметры: -Udid, -BundleId, -Seconds, -Remote, -Out, -Ipa
 "@
 }
 
 switch ($Command.ToLower()) {
     "status" {
         & $Py $StatusPy --udid $Udid --bundle $BundleId
+        exit $LASTEXITCODE
+    }
+    "install" {
+        $installer = Join-Path $Here "sideloadly_install.ps1"
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Ipa $Ipa
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        "--- проверка после установки ---"
+        & $Py $StatusPy --udid $Udid --bundle $BundleId
+        exit $LASTEXITCODE
+    }
+    "selfcheck" {
+        & $Py (Join-Path $Here "ios_selfcheck.py") --udid $Udid --bundle $BundleId
         exit $LASTEXITCODE
     }
     "launch" {

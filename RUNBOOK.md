@@ -66,17 +66,31 @@ sha256 `0ff7b6467bafbb23efb649199bcf853292c635f24f0d0bae723fc84fc6cde0bc`, 488 8
 
 ## 5. Установка на телефон
 
-1. `powershell -NoProfile -ExecutionPolicy Bypass -File .\get-ipa.ps1` — IPA в корне репозитория.
-2. Открыть `C:\Users\lenov\AppData\Local\Sideloadly\sideloadly.exe`.
-3. Перетащить `ScanLab-unsigned.ipa` в окно, убедиться, что выбран iPhone (UDID `00008130-…`).
-4. Рядом с Apple ID должно стоять `nabarnov@yandex.ru`; поле Bundle ID — `com.scanlab.app`
-   (Sideloadly сам добавит хвост `3CB3DRNXR2`).
-5. Нажать **Start** и дождаться `Done`. Пароль/2FA — только человек.
-6. Проверить: `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 status` →
-   версия должна совпасть с `BUILD.txt`.
+Ставит **агент, сам** (проверено 12.11.2026: 0.15.4 встала в 17:27 без единого клика человеком):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\get-ipa.ps1                       # IPA в корень
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 install -Ipa .\dist\ScanLab-0.15.4.ipa
+```
+
+Что происходит внутри (`tools/sideloadly_install.ps1`): запущенному Sideloadly передаётся путь
+к IPA **обычным аргументом** — он показывает файл в окне; затем кнопка `Start` нажимается через
+UI Automation (`InvokePattern`), потому что окно Sideloadly — это Qt, и его контролы видны
+системе как настоящие `QPushButton`/`QComboBox`/`QLabel`. Прогресс читается из подписей:
+`Looking up app ID` → `Installing...` → `Done.`, код возврата 0. Пароль Apple ID не спрашивается,
+пока жива сохранённая сессия (`%APPDATA%\sideloadly\sessions.json`); если всё же появился диалог
+пароля, скрипт выходит с кодом 3 и говорит, что нужен человек.
+
+Ручной путь (если когда-нибудь понадобится): открыть `sideloadly.exe`, перетащить
+`ScanLab-unsigned.ipa`, убедиться, что выбран iPhone и `nabarnov@yandex.ru`, Bundle ID —
+`com.scanlab.app` (Sideloadly сам добавит хвост `3CB3DRNXR2`), нажать **Start**.
+
+После установки `install` сам печатает `status`; отдельно:
+`.\tools\ios.ps1 status` → версия должна совпасть с `BUILD.txt`.
 
 Ограничения свободного Apple ID: профиль 7 дней, 3 приложения, 10 новых App ID в неделю.
-Повторная установка с тем же bundle id слот не тратит.
+Повторная установка с тем же bundle id слот не тратит, а профиль при этом **продлевается**
+(12.11: было 17:28 → стало 19.11.2026 17:28).
 
 ## 6. Логи и запуск
 
@@ -107,25 +121,43 @@ $b = "com.scanlab.app.3CB3DRNXR2"
 & $py -m pymobiledevice3 developer dvt process-id-for-bundle-id $b --udid $udid   # PID, 0 = не запущено
 & $py -m pymobiledevice3 developer dvt launch $b --udid $udid --env "SCANLAB_TAB=4"  # Тест
 & $py -m pymobiledevice3 developer dvt screenshot shot.png --udid $udid            # экран телефона
-& $py -m pymobiledevice3 apps pull $b Scans .\pulled --documents --udid $udid      # Documents/Scans
+& $py -m pymobiledevice3 apps pull $b "Documents/Scans" .\pulled --udid $udid      # папка сканов
 ```
+
+Про `apps pull`: флаг `--documents` в 11.52.1 отвечает `OBJECT_NOT_FOUND` на существующую папку,
+поэтому путь пишется целиком от корня контейнера — `Documents/Scans` или
+`Documents/Scans/diagnostics-latest.txt`. Подчёркивание в имени файла обязательно.
 
 Самопроверку можно прогнать и забрать файлом, без тапов и буфера обмена (0.15.4+):
 
 ```powershell
+# всё одной командой: запуск с триггером, ожидание свежего отчёта, разбор PASS/FAIL
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 selfcheck
+```
+
+Внутри (`tools/ios_selfcheck.py`) — те же два шага вручную:
+
+```powershell
 & $py -m pymobiledevice3 developer dvt launch $b --udid $udid --env "SCANLAB_DIAGNOSE=1"
-Start-Sleep -Seconds 8
-& $py -m pymobiledevice3 apps pull $b Scans\diagnostics-latest.txt .\diag.txt --documents --udid $udid
+& $py -m pymobiledevice3 apps pull $b "Documents/Scans/diagnostics-latest.txt" .\diag.txt --udid $udid
 Get-Content .\diag.txt
 ```
 
-Что проверено 12.11.2026 на 0.15.3 (build 19): `process-id-for-bundle-id` вернул `3096`,
-`launch` — `Process launched with pid 3110`, `screenshot` снял вкладку LiDAR с активной камерой
-и `v0.15.3 (19)` в шапке, `apps pull … Scans` ответил `OBJECT_NOT_FOUND` (сканов ещё нет).
-Все вкладки, кроме «Фото», сняты с живого экрана (`SCANLAB_TAB=0,2,3,4`).
+Что проверено 12.11.2026 на 0.15.4 (build 20), прогон агента: `selfcheck` запустил приложение
+(PID 3210), через 15 с забрал отчёт `time: 2026-11-12T17:29:02+03:00` и напечатал
+**7 из 7 проверок пройдено** — подпись (7 дн., команда 3CB3DRNXR2), запись в Documents/Scans,
+200.9 ГБ свободно, ZIP (206 байт), возможности (LiDAR-меш: да, Photogrammetry: да, Wi-Fi
+192.168.88.198), умный габарит (40×60×100 мм, ошибка 0.00 мм, OBB), эталон в кадре
+(поправка 1.000, A4-как-карта и квадрат отсеяны). Код возврата 0.
 
-Границы: DVT **не нажимает** на экран (нет UI-автоматизации), а `screenshot` на заблокированном
-телефоне отдаёт локскрин (файл 8–9 МБ вместо 100–400 КБ) — сначала разблокировать.
+Что было проверено раньше на 0.15.3 (build 19): `process-id-for-bundle-id` вернул `3096`,
+`launch` — `Process launched with pid 3110`, `screenshot` снял вкладку LiDAR с активной камерой
+и `v0.15.3 (19)` в шапке. Все вкладки, кроме «Фото», сняты с живого экрана (`SCANLAB_TAB=0,2,3,4`).
+
+Границы: DVT **не нажимает** на экран приложения (нет UI-автоматизации iOS без WDA), поэтому
+съёмку и калибровку выполняет человек; зато установка и самопроверка автоматизированы
+(§5 и `selfcheck` выше). `screenshot` на заблокированном телефоне отдаёт локскрин
+(файл 8–9 МБ вместо 100–400 КБ) — сначала разблокировать.
 
 ## 7. Тесты без телефона
 

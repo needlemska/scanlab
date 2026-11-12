@@ -19,7 +19,8 @@
 | IPA | ветка `builds` (git, не артефакты) | `.\get-ipa.ps1` |
 | Устройство | `pymobiledevice3` 11.52.1 (Python 3.10, user-scope) | `usbmux list`, `apps query`, `syslog live`, `apps pull` |
 | Запуск/логи/экран | DVT через pymobiledevice3 (`get-task-allow` есть) | `developer dvt launch`, `developer dvt screenshot`, `syslog live` |
-| Установка | Sideloadly (`C:\Users\lenov\AppData\Local\Sideloadly\sideloadly.exe`) | подпись свободным Apple ID |
+| Установка | Sideloadly через UI Automation — агент ставит сам | `.\tools\ios.ps1 install -Ipa .\dist\ScanLab-0.15.4.ipa` |
+| Самопроверка на телефоне | `SCANLAB_DIAGNOSE=1` + `apps pull` файла отчёта | `.\tools\ios.ps1 selfcheck` |
 | Тесты Swift-логики | Swift 6.4.1 для Windows — **если стоит**; `tools\logic-test.ps1` | `powershell -File tools\logic-test.ps1` |
 | Тесты Python | `tools\tests\test_calibration.py` | `python -m pytest` или прямой запуск |
 
@@ -49,9 +50,11 @@
 3. **CI** — `gh workflow run build` / push в `main`. Сборка идёт ~8–12 минут.
    Зелёный прогон — единственное доказательство компиляции Swift.
 4. **IPA** — `.\get-ipa.ps1`, проверить `BUILD.txt` (версия/билд/sha256).
-5. **Установка** — Sideloadly (перетащить IPA, Start; при первом разе Apple ID и пароль
-   вводит пользователь). После установки — `.\tools\ios.ps1 status`.
-6. **Проверка на устройстве** — `.\tools\ios.ps1 launch`, `.\tools\ios.ps1 logs -Seconds 20`.
+5. **Установка** — агент сам: `.\tools\ios.ps1 install -Ipa .\dist\ScanLab-<версия>.ipa`
+   (Sideloadly принимает путь аргументом, кнопка Start нажимается через UI Automation;
+   пароль Apple ID не спрашивается, пока жива сессия). После установки команда сама печатает `status`.
+6. **Проверка на устройстве** — `.\tools\ios.ps1 selfcheck` (7 проверок в файл),
+   `.\tools\ios.ps1 launch`, `.\tools\ios.ps1 logs -Seconds 20`.
 7. **Отчёт** — в чат: что проверено, чем именно (номер прогона, версия, UDID), что осталось
    непроверенным и почему.
 
@@ -79,10 +82,13 @@
 
 ## 7. Что делает только человек
 
-- Вход в Sideloadly (Apple ID + пароль + 2FA), нажатие Start при установке.
-- Съёмка объекта: поднести телефон, обойти предмет, разрешить камеру/LiDAR.
+- Съёмка объекта: поднести телефон, обойти предмет, разрешить камеру/LiDAR (и разблокировать
+  экран, если нужен скриншот DVT).
+- Подтвердить доверие сертификату в Настройки → Основные → VPN и управление устройством
+  (один раз после переустановки; без этого `dvt launch` отвечает `code 2`).
 - Решение о покупке железа/аккаунта (Mac mini, платный Apple Developer).
-- Подключение телефона кабелем и «Доверять этому компьютеру».
+- Первый вход в Sideloadly с паролем и 2FA — только если сессия Apple ID протухла
+  (тогда `ios.ps1 install` завершится кодом 3 и скажет об этом).
 
 ## 8. Плейбуки
 
