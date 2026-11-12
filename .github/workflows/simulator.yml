@@ -62,8 +62,14 @@ jobs:
             sleep 1
             SIMCTL_CHILD_SCANLAB_TAB=$t xcrun simctl launch "$DEV" com.scanlab.app \
               || echo "LAUNCH_FAILED_TAB_$t"
-            sleep 6
-            xcrun simctl io "$DEV" screenshot "sim-out/tab-$t.png"
+            # Ждём, пока экран перестанет быть чёрным (заставка запуска), и снимаем.
+            for i in $(seq 1 10); do
+              xcrun simctl io "$DEV" screenshot "sim-out/tab-$t.png" >/dev/null 2>&1 || true
+              size=$(stat -f%z "sim-out/tab-$t.png" 2>/dev/null || echo 0)
+              if [ "$size" -gt 20000 ]; then break; fi
+              sleep 2
+            done
+            echo "tab $t screenshot: $(stat -f%z "sim-out/tab-$t.png") bytes"
           done
 
       - name: Логи и падения
