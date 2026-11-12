@@ -64,18 +64,16 @@ Get-Content BUILD.txt                                               # run, commi
 sha256 `967bda9016e28b1b7bfd8d07d903a6f4cfae1e3e97771e8aee85246525aa0201`.
 Внутри IPA **нет** `embedded.mobileprovision` — подпись добавляет Sideloadly.
 
-Артефакты GitHub (`pipelines.githubusercontent.com`) на этой сети могут не открываться —
-поэтому IPA берём **из ветки `builds` через git**, а не со страницы артефактов.
-
 ## 5. Установка на телефон
 
-1. `.\get-ipa.ps1` — IPA в корне репозитория.
+1. `powershell -NoProfile -ExecutionPolicy Bypass -File .\get-ipa.ps1` — IPA в корне репозитория.
 2. Открыть `C:\Users\lenov\AppData\Local\Sideloadly\sideloadly.exe`.
 3. Перетащить `ScanLab-unsigned.ipa` в окно, убедиться, что выбран iPhone (UDID `00008130-…`).
 4. Рядом с Apple ID должно стоять `nabarnov@yandex.ru`; поле Bundle ID — `com.scanlab.app`
    (Sideloadly сам добавит хвост `3CB3DRNXR2`).
 5. Нажать **Start** и дождаться `Done`. Пароль/2FA — только человек.
-6. Проверить: `.\tools\ios.ps1 status` → версия должна совпасть с `BUILD.txt`.
+6. Проверить: `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 status` →
+   версия должна совпасть с `BUILD.txt`.
 
 Ограничения свободного Apple ID: профиль 7 дней, 3 приложения, 10 новых App ID в неделю.
 Повторная установка с тем же bundle id слот не тратит.
