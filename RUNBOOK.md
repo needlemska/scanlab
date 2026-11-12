@@ -28,11 +28,11 @@
 | Приложение | `com.scanlab.app.3CB3DRNXR2` (ALTBundleIdentifier `com.scanlab.app`) |
 | Команда подписи | `3CB3DRNXR2` (свободный Apple ID `nabarnov@yandex.ru`) |
 | Энтайтлменты | `get-task-allow: true` (debug-подпись, DVT-запуск возможен) |
-| **Стоит на телефоне** | **0.11.0 (build 11)** — сильно старше `main` (0.15.0) |
+| **Стоит на телефоне** | **0.11.0 (build 11)** — сильно старше `main` (0.15.2) |
 | Профиль | выставлен 29.10.2026 16:49, TTL 7 дней → **истёк 05.11.2026 16:49 MSK** |
 
 Следствие: приложение на телефоне **сейчас не запускается** — iOS не даёт стартовать процессу
-с истёкшим профилем. Нужна переподпись свежим профилем (Sideloadly), и лучше сразу 0.15.0.
+с истёкшим профилем. Нужна переподпись свежим профилем (Sideloadly), и лучше сразу 0.15.2.
 
 ## 3. Быстрый статус
 
@@ -60,8 +60,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\get-ipa.ps1   # IPA из �
 Get-Content BUILD.txt                                               # run, commit, время сборки
 ```
 
-Проверено 12.11.2026: `ScanLab-unsigned.ipa` = **0.15.0 (build 16)**, `run=34`, commit `0dd6726`,
-sha256 `967bda9016e28b1b7bfd8d07d903a6f4cfae1e3e97771e8aee85246525aa0201`.
+Проверено 12.11.2026: `ScanLab-unsigned.ipa` = **0.15.2 (build 18)**, `run=45`, commit `c21fa25`,
+sha256 `422b3cecc499f01728574e36d2ea3675c4e8d09ecea14becb54fa3face234270`.
 Внутри IPA **нет** `embedded.mobileprovision` — подпись добавляет Sideloadly.
 
 ## 5. Установка на телефон
@@ -87,7 +87,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 pull        
 ```
 
 Проверено 12.11.2026: `syslog live` отдаёт ~600 строк в секунду (за 8 с — 4813 строк, файл в
-`logs/`), фильтр по `ScanLab` — 0 совпадений, потому что приложение не запускается (профиль истёк).
+`logs/`, папка в `.gitignore`), фильтр по `ScanLab` — 0 совпадений, потому что приложение не
+запускается (профиль истёк).
 
 Если `dvt launch` отвечает
 `DTXNsError: com.apple.dt.deviceprocesscontrolservice (code 2, … 'Request to launch … failed.')` —

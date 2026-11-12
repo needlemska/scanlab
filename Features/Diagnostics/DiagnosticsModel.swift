@@ -67,6 +67,7 @@ final class DiagnosticsModel: ObservableObject {
         result.append(zipCheck())
         result.append(environmentCheck())
         result.append(smartBoxCheck())
+        result.append(referenceCheck())
         checks = result
         isRunning = false
         saveReport()
@@ -217,6 +218,55 @@ final class DiagnosticsModel: ObservableObject {
         return DiagnosticCheck(title: title,
                                detail: "\(sizes), ошибка \(error) мм, метод \(result.method)",
                                passed: worst < 3,
+                               critical: true)
+    }
+
+    /// Эталон в кадре: проверяем чистую математику `ReferenceRect` на синтетике.
+    ///
+    /// Что именно ловим (это уже стоило трёх багов в ревью): поправка считается
+    /// по площади, а не по одной стороне; A4, найденный как «карта», не проходит
+    /// проверку правдоподобности; квадрат не принимается за лист.
+    private func referenceCheck() -> DiagnosticCheck {
+        let title = "Эталон в кадре"
+        var failures: [String] = []
+
+        for kind in ReferenceKind.allCases {
+            let exact = (a: kind.widthMM / 1000, b: kind.heightMM / 1000)
+            guard let factor = ReferenceRect.factor(measured: exact, kind: kind) else {
+                failures.append("\(kind.title): точный размер отвергнут")
+                continue
+            }
+            if abs(factor - 1) > 0.01 { failures.append("\(kind.title): поправка \(factor)") }
+            // Порядок углов не должен менять ответ.
+            guard let flipped = ReferenceRect.factor(measured: (a: exact.b, b: exact.a), kind: kind) else {
+                failures.append("\(kind.title): перевёрнутые стороны отвергнуты")
+                continue
+            }
+            if abs(flipped - 1) > 0.01 { failures.append("\(kind.title): перевёрнутые дали \(flipped)") }
+        }
+
+        // Лист A4, принятый за банковскую карту: форма проходит, площадь — нет.
+        let sheetAsCard = (a: ReferenceKind.a4.widthMM / 1000, b: ReferenceKind.a4.heightMM / 1000)
+        if ReferenceRect.autoFactor(measured: sheetAsCard, kind: .card) != nil {
+            failures.append("A4 принят за карту")
+        }
+        // Квадрат 100 × 100 мм не должен сойти за A4.
+        if ReferenceRect.factor(measured: (0.1, 0.1), kind: .a4) != nil {
+            failures.append("квадрат принят за A4")
+        }
+        // Вырожденная сторона.
+        if ReferenceRect.sides([SIMD3<Float>(0, 0, 0),
+                                 SIMD3<Float>(0.0005, 0, 0),
+                                 SIMD3<Float>(0.0005, 0.2, 0),
+                                 SIMD3<Float>(0, 0.2, 0)]) != nil {
+            failures.append("сторона 0,5 мм не отбракована")
+        }
+
+        let ok = failures.isEmpty
+        return DiagnosticCheck(title: title,
+                               detail: ok ? "A4, карта, монета: поправка 1.000; A4-как-карта и квадрат отсеяны"
+                                          : failures.joined(separator: "; "),
+                               passed: ok,
                                critical: true)
     }
 

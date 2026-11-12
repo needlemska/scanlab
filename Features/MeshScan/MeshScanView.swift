@@ -5,6 +5,9 @@ import UIKit
 struct MeshScanView: View {
     @StateObject private var scan = MeshScanSession()
     @State private var knownText = "100"
+    /// У decimalPad нет кнопки «Готово»: без явного фокуса клавиатура закрывала
+    /// нижние кнопки и убрать её было нечем.
+    @FocusState private var knownFocused: Bool
 
     var body: some View {
         ZStack {
@@ -35,6 +38,12 @@ struct MeshScanView: View {
         // ARSession живёт отдельно от UIView: при уходе на другую вкладку камера
         // остаётся занятой ARKit, и «Фото» не может открыть свой AVCaptureSession.
         .onDisappear { scan.stop() }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Готово") { knownFocused = false }
+            }
+        }
     }
 
     private var errorBinding: Binding<Bool> {
@@ -220,6 +229,7 @@ struct MeshScanView: View {
                     .foregroundStyle(.white.opacity(0.7))
                 TextField("100", text: $knownText)
                     .keyboardType(.decimalPad)
+                    .focused($knownFocused)
                     .multilineTextAlignment(.center)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.white)
@@ -228,6 +238,7 @@ struct MeshScanView: View {
                     .frame(width: 72)
                     .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
                 Button("Калибровать") {
+                    knownFocused = false
                     let text = knownText.replacingOccurrences(of: ",", with: ".")
                     scan.calibrate(withKnownMM: Double(text) ?? 0)
                 }

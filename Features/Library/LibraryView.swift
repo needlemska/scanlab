@@ -28,7 +28,7 @@ struct LibraryView: View {
                     ContentUnavailableView(
                         "Пока пусто",
                         systemImage: "cube.transparent",
-                        description: Text("Сканы из вкладок LiDAR и Фото появятся здесь.\nФайлы всегда доступны в приложении «Файлы» → На iPhone → ScanLab.")
+                        description: Text("Сканы из вкладок LiDAR, Фото и Скан появятся здесь.\nФайлы всегда доступны в приложении «Файлы» → На iPhone → ScanLab.")
                     )
                     .listRowBackground(Color.clear)
                 }
@@ -131,18 +131,32 @@ struct LibraryView: View {
         .padding(.vertical, 4)
     }
 
+    /// Иконка и подпись по типу скана: папки называются `lidar-…`, `auto-…`,
+    /// `photo3d-…`, `photo-…`, и до сих пор любая не-LiDAR папка рисовалась
+    /// «фотографией», хотя это мог быть автосъёмка или Object Capture.
+    private func appearance(for kind: String) -> (symbol: String, color: Color, label: String) {
+        switch kind {
+        case "lidar": return ("cube.transparent", .green, "LiDAR")
+        case "auto": return ("viewfinder.circle", .cyan, "авто")
+        case "photo3d": return ("square.stack.3d.up", .purple, "Object Capture")
+        case "photo": return ("photo.on.rectangle.angled", .blue, "фото")
+        default: return ("folder", .gray, kind)
+        }
+    }
+
     private func row(for item: ScanRecord) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: item.kind == "lidar" ? "cube.transparent" : "photo.on.rectangle.angled")
+        let look = appearance(for: item.kind)
+        return HStack(spacing: 12) {
+            Image(systemName: look.symbol)
                 .font(.title2)
-                .foregroundStyle(item.kind == "lidar" ? .green : .blue)
+                .foregroundStyle(look.color)
                 .frame(width: 34)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.name)
                     .font(.subheadline)
                     .lineLimit(1)
-                Text("\(item.formattedSize) · \(item.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                Text("\(look.label) · \(item.formattedSize) · \(item.createdAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
