@@ -1,0 +1,89 @@
+name: simulator-run
+
+# Запуск приложения в iOS Simulator на macOS-раннере: единственный «эмулятор»,
+# доступный с этого стенда. ARKit/LiDAR/камеры в симуляторе нет, поэтому проверяем
+# только то, что проверяемо: сборка под симулятор, запуск, стартовый экран, отсутствие
+# падения на старте. Скриншоты и логи уходят артефактом.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/simulator.yml"
+
+jobs:
+  simulator:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Что за Xcode и рантаймы
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+
+      - name: Собрать под симулятор
+        run: |
+          set -o pipefail
+          # В симуляторе нет ARKit: capability из Info.plist убираем ТОЛЬКО здесь.
+          /usr/libexec/PlistBuddy -c "Delete :UIRequiredDeviceCapabilities" App/Info.plist || true
+          brew install xcodegen >/dev/null 2>&1 || true
+          xcodegen generate
+          xcodebuild -project ScanLab.xcodeproj -scheme ScanLab \
+            -sdk iphonesimulator -configuration Debug \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -40
+
+      - name: Запустить в симуляторе и снять экран
+        run: |
+          set -x
+          mkdir -p sim-out
+          DEV=$(python3 - <<'PY'
+import json, subprocess
+data = json.loads(subprocess.check_output(
+    ["xcrun", "simctl", "list", "devices", "available", "-j"]))
+for runtime, devices in data["devices"].items():
+    for dev in devices:
+        if dev["name"].startswith("iPhone"):
+            print(dev["udid"])
+            raise SystemExit
+raise SystemExit("no iPhone simulator")
+PY
+)
+          echo "DEV=$DEV" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEV" || true
+          xcrun simctl bootstatus "$DEV" -b
+          APP=$(ls -d build/Build/Products/Debug-iphonesimulator/*.app | head -1)
+          echo "APP=$APP"
+          xcrun simctl install "$DEV" "$APP"
+          xcrun simctl launch "$DEV" com.scanlab.app || echo "LAUNCH_FAILED"
+          sleep 12
+          xcrun simctl io "$DEV" screenshot sim-out/shot-1-start.png
+          xcrun simctl spawn "$DEV" launchctl list | grep -i scanlab || echo "NOT_RUNNING"
+          sleep 5
+          xcrun simctl io "$DEV" screenshot sim-out/shot-2-after.png
+
+      - name: Логи и падения
+        if: always()
+        run: |
+          mkdir -p sim-out
+          set +e
+          xcrun simctl spawn "$DEV" log show --style compact --last 3m \
+            --predicate 'process == "ScanLab"' > sim-out/scanlab.log 2>&1
+          wc -l sim-out/scanlab.log
+          tail -60 sim-out/scanlab.log
+          ls -la ~/Library/Logs/DiagnosticReports/ 2>/dev/null
+          for f in ~/Library/Logs/DiagnosticReports/ScanLab*.ips; do
+            [ -f "$f" ] || continue
+            echo "=== CRASH: $f"
+            cp "$f" sim-out/
+            head -60 "$f"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sim-out
+          path: sim-out/
+          if-no-files-found: warn
