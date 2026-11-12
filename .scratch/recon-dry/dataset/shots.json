@@ -1,0 +1,134 @@
+{
+  "app" : "ScanLab",
+  "burstInterval" : 0.69999999999999996,
+  "created" : "2026-11-12T12:49:42Z",
+  "device" : "iPhone",
+  "iso" : 100,
+  "kind" : "photo-set",
+  "manualExposure" : true,
+  "note" : "img_%03d.jpg или .heic — фото; img_%03d_depth.f32 — сырая глубина LiDAR (Float32, построчно, ширина×высота из shots[].depthSize)",
+  "shots" : [
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_001_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_001.jpg",
+      "timestamp" : "2026-11-12T12:49:16Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_002_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_002.jpg",
+      "timestamp" : "2026-11-12T12:49:17Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_003_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_003.jpg",
+      "timestamp" : "2026-11-12T12:49:19Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_004_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_004.jpg",
+      "timestamp" : "2026-11-12T12:49:20Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_005_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_005.jpg",
+      "timestamp" : "2026-11-12T12:49:21Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_006_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_006.jpg",
+      "timestamp" : "2026-11-12T12:49:23Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_007_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_007.jpg",
+      "timestamp" : "2026-11-12T12:49:24Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_008_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_008.jpg",
+      "timestamp" : "2026-11-12T12:49:25Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_009_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_009.jpg",
+      "timestamp" : "2026-11-12T12:49:27Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_010_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_010.jpg",
+      "timestamp" : "2026-11-12T12:49:28Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_011_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_011.jpg",
+      "timestamp" : "2026-11-12T12:49:30Z"
+    },
+    {
+      "depthAccuracy" : 1,
+      "depthFile" : "img_012_depth.f32",
+      "depthSize" : [
+        768,
+        576
+      ],
+      "file" : "img_012.jpg",
+      "timestamp" : "2026-11-12T12:49:31Z"
+    }
+  ],
+  "shutterDenominator" : 120,
+  "systemVersion" : "27.2.1"
+}

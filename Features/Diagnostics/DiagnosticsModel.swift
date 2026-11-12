@@ -1,5 +1,7 @@
 import Foundation
 import UIKit
+import AVFoundation
+import CoreMedia
 import ARKit
 import RealityKit
 import simd
@@ -68,6 +70,7 @@ final class DiagnosticsModel: ObservableObject {
         result.append(environmentCheck())
         result.append(smartBoxCheck())
         result.append(referenceCheck())
+        result.append(cameraCheck())
         checks = result
         isRunning = false
         saveReport()
@@ -275,8 +278,26 @@ final class DiagnosticsModel: ObservableObject {
                                critical: true)
     }
 
-    // MARK: - Синтетика
+    /// Угол обзора и размер кадра — из них на компьютере считается фокус для COLMAP
+    /// (`pc/photogrammetry.py`, `camera_params_from_shots`). Проверка нужна потому,
+    /// что `cameraCalibrationData` в реальной серии пришёл nil, а EXIF кадров
+    /// приложения вообще не содержит `FocalLength` (проверено 12.11.2026).
+    private func cameraCheck() -> DiagnosticCheck {
+        let title = "Камера: угол обзора"
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            return DiagnosticCheck(title: title, detail: "широкая камера не найдена",
+                                   passed: false, critical: false)
+        }
+        let hfov = Double(device.activeFormat.videoFieldOfView)
+        let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+        let sane = hfov > 30 && hfov < 130 && dims.width > 0 && dims.height > 0
+        let detail = sane
+            ? String(format: "%.1f°, кадр %d×%d — фокус для COLMAP подскажем", hfov, dims.width, dims.height)
+            : String(format: "угол %.1f°, кадр %d×%d — подозрительно", hfov, dims.width, dims.height)
+        return DiagnosticCheck(title: title, detail: detail, passed: sane, critical: false)
+    }
 
+    // MARK: - Синтетика
     /// Коробка из треугольников: 6 граней, каждая разбита на cells × cells четырёхугольников.
     /// Возвращает по три точки на грань — ровно тот вход, который ждёт `SmartBox.measure`.
     static func syntheticBox(dims: SIMD3<Float>,

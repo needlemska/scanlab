@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -73,22 +74,29 @@ def run_step(cmd: list[str], dry_run: bool) -> int:
     return proc.returncode
 
 
-def build_steps(colmap: str, dataset: str, max_image_size: int) -> list[tuple]:
+def build_steps(colmap: str, dataset: str, max_image_size: int,
+                camera_params: str | None = None) -> list[tuple]:
     db = os.path.join(dataset, "database.db")
     images = os.path.join(dataset, "images")
     sparse = os.path.join(dataset, "sparse")
     dense = os.path.join(dataset, "dense")
+    features = [
+        colmap, "feature_extractor",
+        "--database_path", db,
+        "--image_path", images,
+        "--ImageReader.single_camera", "1",
+        "--ImageReader.camera_model", "OPENCV",
+    ]
+    if camera_params:
+        # Кадры приложения пишутся без FocalLength в EXIF (проверено на данных
+        # 12.11.2026), поэтому COLMAP без подсказки берёт фокус «по умолчанию»,
+        # и первая триангуляция получается хуже. Ставим фокус из угла обзора.
+        features += ["--ImageReader.camera_params", camera_params]
     return [
         (
             "features",
             None,
-            [
-                colmap, "feature_extractor",
-                "--database_path", db,
-                "--image_path", images,
-                "--ImageReader.single_camera", "1",
-                "--ImageReader.camera_model", "OPENCV",
-            ],
+            features,
         ),
         ("matching", None, [colmap, "exhaustive_matcher", "--database_path", db]),
         (
@@ -185,6 +193,48 @@ def prepare_dataset(source: str, dataset: str, tmp_holder: list) -> str:
     if os.path.isfile(shots):
         shutil.copy2(shots, os.path.join(dataset, "shots.json"))
     return frames
+
+
+def focal_from_hfov(width: int, hfov_deg: float) -> float:
+    """Фокус в пикселях по горизонтальному углу обзора (прямоугольная модель)."""
+    if width <= 0 or not (1.0 < hfov_deg < 179.0):
+        raise ValueError(f"bad hfov: width={width}, hfov={hfov_deg}")
+    return width / (2.0 * math.tan(math.radians(hfov_deg) / 2.0))
+
+
+def camera_params_from_shots(dataset: str) -> tuple[str, dict] | None:
+    """Параметры камеры для COLMAP из shots.json: fx,fy,cx,cy,k1,k2,p1,p2.
+
+    Приложение пишет `hfovDeg` (device.activeFormat.videoFieldOfView) и `imageSize`,
+    потому что `cameraCalibrationData` в этой сессии приходит nil. Дисторсия
+    неизвестна — ставим нули, COLMAP уточнит её на BA.
+    """
+    path = os.path.join(dataset, "shots.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            shots = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if isinstance(shots, dict):
+        shots = shots.get("shots", [])
+    for shot in shots if isinstance(shots, list) else []:
+        if not isinstance(shot, dict):
+            continue
+        size = shot.get("imageSize")
+        hfov = shot.get("hfovDeg")
+        if not (isinstance(size, list) and len(size) == 2 and hfov):
+            continue
+        try:
+            width, height = int(size[0]), int(size[1])
+            fx = focal_from_hfov(width, float(hfov))
+        except (TypeError, ValueError):
+            continue
+        params = f"{fx:.3f},{fx:.3f},{width / 2.0:.3f},{height / 2.0:.3f},0,0,0,0"
+        return params, {"fx": fx, "fy": fx, "width": width, "height": height,
+                        "hfov_deg": float(hfov)}
+    return None
 
 
 def describe_shots(dataset: str) -> dict:
@@ -327,7 +377,18 @@ def main() -> int:
         if info.get("shots_json"):
             log(f"shots.json: {info['shots']} shots, sectors {info['sectors_covered']}")
 
-        steps = build_steps(args.colmap, dataset, args.max_image_size)
+        guess = camera_params_from_shots(dataset)
+        camera_params = guess[0] if guess else None
+        if guess:
+            meta = guess[1]
+            log(f"[camera] fx={meta['fx']:.1f} px from hfov {meta['hfov_deg']:.1f}° "
+                f"({meta['width']}×{meta['height']}) — EXIF без фокусного, подсказываем COLMAP")
+            info["camera"] = {"source": "hfov", **meta}
+        else:
+            log("[camera] угол обзора не найден — COLMAP оценит фокус сам")
+            info["camera"] = {"source": "colmap"}
+
+        steps = build_steps(args.colmap, dataset, args.max_image_size, camera_params)
         for name, marker, cmd in steps:
             done = marker is not None and os.path.exists(marker)
             log(f"[{name}] {'skip (done)' if done else 'run'}")

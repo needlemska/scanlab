@@ -577,6 +577,18 @@ extension ProCaptureModel: AVCapturePhotoCaptureDelegate {
             "timestamp": ISO8601DateFormatter().string(from: Date())
         ]
 
+        // Размер кадра и угол обзора пишем всегда: на этих снимках
+        // cameraCalibrationData приходит nil (проверено на данных 12.11.2026),
+        // и без них pc/scale_from_depth.py не может спроецировать точки —
+        // фотограмметрия остаётся в произвольных единицах COLMAP.
+        let dimensions = photo.resolvedSettings.photoDimensions
+        if dimensions.width > 0, dimensions.height > 0 {
+            shot["imageSize"] = [Int(dimensions.width), Int(dimensions.height)]
+        }
+        if let device, device.activeFormat.videoFieldOfView > 1 {
+            shot["hfovDeg"] = Double(device.activeFormat.videoFieldOfView)
+        }
+
         if let depth = photo.depthData {
             // В SDK iOS 26 converting(toDepthDataType:) возвращает AVDepthData, а не опционал.
             let converted = depth.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)

@@ -28,6 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, "pc"))
 
+import photogrammetry
 import scale_from_depth as sfd
 import scale_from_poses as sfp
 import turn_table_check as ttc
@@ -332,11 +333,47 @@ def test_turn_table() -> None:
             check("стол: без yawDeg ошибка", True)
 
 
+def test_camera_hint() -> None:
+    """Фокус из угла обзора: кадры приложения идут без FocalLength в EXIF."""
+    fx = photogrammetry.focal_from_hfov(4032, 73.0)
+    check("камера: fx из hfov 73°", abs(fx - 2724.5) < 2.0, f"{fx:.1f} px")
+    fx_wide = photogrammetry.focal_from_hfov(4032, 120.0)
+    check("камера: широкий угол даёт меньше фокус", fx_wide < fx / 2, f"{fx_wide:.1f} px")
+
+    for bad in ((0, 73.0), (4032, 0.0), (4032, 180.0), (4032, -5.0)):
+        try:
+            photogrammetry.focal_from_hfov(*bad)
+            check(f"камера: плохой вход {bad}", False, "исключения не было")
+        except ValueError:
+            check(f"камера: плохой вход {bad}", True)
+
+    with tempfile.TemporaryDirectory() as root:
+        with open(os.path.join(root, "shots.json"), "w", encoding="utf-8") as handle:
+            json.dump({"shots": [{"file": "img_001.jpg", "imageSize": [4032, 3024], "hfovDeg": 73.0}]},
+                      handle)
+        guess = photogrammetry.camera_params_from_shots(root)
+        check("камера: параметры найдены", guess is not None, "None")
+        if guess:
+            params, meta = guess
+            numbers = [float(x) for x in params.split(",")]
+            check("камера: восемь параметров OPENCV", len(numbers) == 8, params)
+            check("камера: cx, cy по центру",
+                  (numbers[2], numbers[3]) == (2016.0, 1512.0), params)
+            check("камера: дисторсия нулевая", numbers[4:] == [0.0, 0.0, 0.0, 0.0], params)
+
+    with tempfile.TemporaryDirectory() as root:
+        with open(os.path.join(root, "shots.json"), "w", encoding="utf-8") as handle:
+            json.dump({"shots": [{"file": "img_001.jpg"}]}, handle)
+        check("камера: без hfov подсказки нет",
+              photogrammetry.camera_params_from_shots(root) is None, "не None")
+
+
 def main() -> int:
     print(f"python {sys.version.split()[0]}, numpy {np.__version__}")
     test_scale_from_poses()
     test_scale_from_depth()
     test_turn_table()
+    test_camera_hint()
     print("")
     if failures:
         print(f"провалено: {', '.join(failures)}")
