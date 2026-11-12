@@ -25,3 +25,6 @@ Models/
 
 # Логи syslog, снятые tools/ios_logs.py
 logs/
+
+# Выгрузка с телефона (tools/ios.ps1 pull -Out)
+pulled

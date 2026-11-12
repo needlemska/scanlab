@@ -18,7 +18,7 @@
 | Сборка | GitHub Actions через `gh` | `gh run list -R needlemska/scanlab`, `gh run watch` |
 | IPA | ветка `builds` (git, не артефакты) | `.\get-ipa.ps1` |
 | Устройство | `pymobiledevice3` 11.52.1 (Python 3.10, user-scope) | `usbmux list`, `apps query`, `syslog live`, `apps pull` |
-| Запуск/логи | DVT через pymobiledevice3 (`get-task-allow` есть) | `developer dvt launch`, `syslog live` |
+| Запуск/логи/экран | DVT через pymobiledevice3 (`get-task-allow` есть) | `developer dvt launch`, `developer dvt screenshot`, `syslog live` |
 | Установка | Sideloadly (`C:\Users\lenov\AppData\Local\Sideloadly\sideloadly.exe`) | подпись свободным Apple ID |
 | Тесты Swift-логики | Swift 6.4.1 для Windows — **если стоит**; `tools\logic-test.ps1` | `powershell -File tools\logic-test.ps1` |
 | Тесты Python | `tools\tests\test_calibration.py` | `python -m pytest` или прямой запуск |
@@ -34,7 +34,11 @@
 - Xcode MCP, WDA (WebDriverAgent собирается только Xcode'ом), `ios_*`/`mobile_*` MCP.
 - Установка без подписи: любой IPA ставится **только** подписанным профилем свободного Apple ID
   (7 дней, 3 приложения). `pymobiledevice3 apps install` берёт уже подписанный `.ipa`.
-- Скриншоты экрана телефона без WDA/Xcode — нет; снимает пользователь.
+- DVT **не** умеет нажимать на экран (нет UI-автоматизации без WDA): переключить вкладку можно
+  только запуском с переменной окружения `SCANLAB_TAB`, а действия пользователя (съёмка,
+  калибровка) выполняет человек.
+- Скриншот DVT снимает **только разблокированный** экран: на заблокированном приходит картинка
+  локскрина (и весит 8–9 МБ вместо обычных 100–400 КБ) — это не ошибка приложения.
 
 ## 4. Рабочий цикл
 

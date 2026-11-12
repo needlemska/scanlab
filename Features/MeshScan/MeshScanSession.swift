@@ -130,9 +130,16 @@ final class MeshScanSession: NSObject, ObservableObject {
     }
 
     func stop() {
+        let wasScanning = isScanning
         arView?.session.pause()
         isScanning = false
         isPaused = !anchors.isEmpty
+        guard wasScanning else {
+            // stop() зовут и с onDisappear, и при уходе с вкладки: если съёмка не шла,
+            // подсказку не трогаем, иначе на свежем экране «Старт» живёт рядом с «Пауза».
+            if !isPaused { status = "Нажмите «Старт» и обойдите объект" }
+            return
+        }
         status = isPaused ? "Пауза. Можно продолжить или экспортировать" : "Пауза"
     }
 

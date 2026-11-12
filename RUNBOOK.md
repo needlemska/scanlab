@@ -86,13 +86,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 logs -Second
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 pull          # Documents/Scans
 ```
 
-Проверено 12.11.2026: `syslog live` отдаёт ~600 строк в секунду (за 8 с — 4813 строк, файл в
-`logs/`, папка в `.gitignore`), фильтр по `ScanLab` — 0 совпадений, потому что приложение не
-запускается (профиль истёк).
+Проверено 12.11.2026: `syslog live` отдаёт ~600–1500 строк в секунду (за 8 с — 11 924 строки,
+файл в `logs/`, папка в `.gitignore`). Собственных логов приложение не пишет, поэтому совпадений
+по фильтру `ScanLab` обычно 0 — это нормально, о запуске судят по `dvt`-командам ниже.
 
 Если `dvt launch` отвечает
 `DTXNsError: com.apple.dt.deviceprocesscontrolservice (code 2, … 'Request to launch … failed.')` —
-почти всегда это истёкший/битый профиль либо приложение удалено. Смотреть `status`.
+почти всегда это истёкший/битый профиль, приложение удалено **или профиль разработчика ещё не
+доверен** (`Настройки → Основные → VPN и управление устройством → Доверять`). Смотреть `status`.
+
+### 6б. DVT напрямую: запуск с вкладкой, скриншот, выгрузка
+
+`pymobiledevice3 developer dvt` даёт то, что раньше считалось недоступным без WDA:
+
+```powershell
+$py = "C:\Users\lenov\AppData\Local\Programs\Python\Python310\python.exe"
+$udid = "00008130-000A44C01443001C"
+$b = "com.scanlab.app.3CB3DRNXR2"
+
+& $py -m pymobiledevice3 developer dvt process-id-for-bundle-id $b --udid $udid   # PID, 0 = не запущено
+& $py -m pymobiledevice3 developer dvt launch $b --udid $udid --env "SCANLAB_TAB=4"  # Тест
+& $py -m pymobiledevice3 developer dvt screenshot shot.png --udid $udid            # экран телефона
+& $py -m pymobiledevice3 apps pull $b Scans .\pulled --documents --udid $udid      # Documents/Scans
+```
+
+Что проверено 12.11.2026 на 0.15.3 (build 19): `process-id-for-bundle-id` вернул `3096`,
+`launch` — `Process launched with pid 3110`, `screenshot` снял вкладку LiDAR с активной камерой
+и `v0.15.3 (19)` в шапке, `apps pull … Scans` ответил `OBJECT_NOT_FOUND` (сканов ещё нет).
+
+Границы: DVT **не нажимает** на экран (нет UI-автоматизации), а `screenshot` на заблокированном
+телефоне отдаёт локскрин (файл 8–9 МБ вместо 100–400 КБ) — сначала разблокировать.
 
 ## 7. Тесты без телефона
 
