@@ -1,4 +1,4 @@
-﻿#Requires -Version 5
+#Requires -Version 5
 <#
     Забирает собранный ScanLab-unsigned.ipa из ветки builds.
 
@@ -24,6 +24,9 @@ git checkout FETCH_HEAD -- ScanLab-unsigned.ipa
 if ($LASTEXITCODE -ne 0) {
     throw "В ветке builds нет файла ScanLab-unsigned.ipa."
 }
+# checkout -- кладёт файл в индекс, обходя .gitignore; убираем, чтобы IPA нельзя было
+# случайно закоммитить в main (он живёт только в ветке builds).
+git reset -q -- ScanLab-unsigned.ipa
 
 $file = Get-Item .\ScanLab-unsigned.ipa
 "Готово: {0} ({1:N1} МБ), собрано {2:dd.MM.yyyy HH:mm}" -f `
