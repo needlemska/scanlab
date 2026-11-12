@@ -149,8 +149,8 @@ check("A4 как карта: автокалибровка отвергает",
       a4Sides.flatMap { ReferenceRect.autoFactor(measured: $0, kind: .card) } == nil)
 
 // Карта, которую LiDAR измерил на 2 % больше: поправка 0,98 — рабочая.
-let cardSides = ReferenceRect.sides(rect(width: 0.0873, height: 0.05506))
-let cardAuto = cardSides.flatMap { ReferenceRect.autoFactor(measured: $0, kind: .card) }
+let cardPlus2Sides = ReferenceRect.sides(rect(width: 0.0873, height: 0.05506))
+let cardAuto = cardPlus2Sides.flatMap { ReferenceRect.autoFactor(measured: $0, kind: .card) }
 check("карта +2 %: поправка принята", cardAuto != nil && abs(cardAuto! - 1 / 1.02) < 0.005,
       "\(String(describing: cardAuto))")
 
