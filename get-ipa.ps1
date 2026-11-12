@@ -1,4 +1,4 @@
-#Requires -Version 5
+﻿#Requires -Version 5
 <#
     Забирает собранный ScanLab-unsigned.ipa из ветки builds.
 

@@ -28,11 +28,11 @@
 | Приложение | `com.scanlab.app.3CB3DRNXR2` (ALTBundleIdentifier `com.scanlab.app`) |
 | Команда подписи | `3CB3DRNXR2` (свободный Apple ID `nabarnov@yandex.ru`) |
 | Энтайтлменты | `get-task-allow: true` (debug-подпись, DVT-запуск возможен) |
-| **Стоит на телефоне** | **0.11.0 (build 11)** — сильно старше `main` (0.15.2) |
+| **Стоит на телефоне** | **0.11.0 (build 11)** — сильно старше `main` (0.15.3) |
 | Профиль | выставлен 29.10.2026 16:49, TTL 7 дней → **истёк 05.11.2026 16:49 MSK** |
 
 Следствие: приложение на телефоне **сейчас не запускается** — iOS не даёт стартовать процессу
-с истёкшим профилем. Нужна переподпись свежим профилем (Sideloadly), и лучше сразу 0.15.2.
+с истёкшим профилем. Нужна переподпись свежим профилем (Sideloadly), и лучше сразу 0.15.3.
 
 ## 3. Быстрый статус
 
@@ -60,8 +60,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\get-ipa.ps1   # IPA из �
 Get-Content BUILD.txt                                               # run, commit, время сборки
 ```
 
-Проверено 12.11.2026: `ScanLab-unsigned.ipa` = **0.15.2 (build 18)**, `run=45`, commit `c21fa25`,
-sha256 `422b3cecc499f01728574e36d2ea3675c4e8d09ecea14becb54fa3face234270`.
+Проверено 12.11.2026: `ScanLab-unsigned.ipa` = **0.15.3 (build 19)**, `run=48`, commit `75ff63e`,
+sha256 `0ff7b6467bafbb23efb649199bcf853292c635f24f0d0bae723fc84fc6cde0bc`, 488 836 байт.
 Внутри IPA **нет** `embedded.mobileprovision` — подпись добавляет Sideloadly.
 
 ## 5. Установка на телефон
@@ -184,6 +184,19 @@ gh run download <run-id> -R needlemska/scanlab -n sim-out -D .scratch/sim-out
 ### 2026-11-12. `.ps1` с кириллицей не читается
 
 - PowerShell 5.1 требует **UTF-8 с BOM** для скриптов с не-ASCII. Файлы `.md` — без BOM.
+
+### 2026-11-12. Правка `.ps1` инструментом `edit` снимает BOM
+
+- Симптом: после правки `get-ipa.ps1` запуск падает с `Missing closing ')' in expression` на
+  строке `if ($LASTEXITCODE -ne 0) {`, в тексте ошибки кириллица вида `Р°Р№Р»Р°` — это UTF-8,
+  прочитанный как cp866. `edit` переписывает файл без BOM, и PowerShell 5.1 перестаёт
+  понимать строки с русским текстом.
+- Проверка BOM по всем скриптам:
+  `Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object { $b=[IO.File]::ReadAllBytes($_.FullName); "$($_.Name) BOM=" + ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) }`
+- Лечение (и что делать после каждой правки `.ps1` с кириллицей):
+  `$p="...\get-ipa.ps1"; $t=[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8); [IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($true)))`
+- Быстрый гейт без запуска:
+  `[void][System.Management.Automation.Language.Parser]::ParseFile($p,[ref]$null,[ref]$errs); $errs.Count`
 
 ## 9. Что осталось за человеком
 
