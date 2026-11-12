@@ -46,6 +46,11 @@ jobs:
           APP=$(ls -d build/Build/Products/Debug-iphonesimulator/*.app | head -1)
           echo "APP=$APP"
           xcrun simctl install "$DEV" "$APP"
+          # Разрешения выдаём заранее, иначе системный диалог закрывает половину экрана.
+          xcrun simctl privacy "$DEV" grant camera com.scanlab.app || true
+          xcrun simctl privacy "$DEV" grant photos-album-add com.scanlab.app || true
+          xcrun simctl privacy "$DEV" grant microphone com.scanlab.app || true
+          xcrun simctl privacy "$DEV" grant location com.scanlab.app || true
           # Первый запуск: проверяем, что процесс вообще стартует и живёт.
           xcrun simctl launch "$DEV" com.scanlab.app || echo "LAUNCH_FAILED"
           sleep 12
