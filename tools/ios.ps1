@@ -10,6 +10,8 @@
       status                 устройство, установленная версия, срок профиля, вердикт
       install [-Ipa path]    подписать и поставить IPA через Sideloadly (без мыши)
       selfcheck              прогнать самопроверку на телефоне и прочитать отчёт
+      autopilot [-Seconds N] [-Ref a4|card|coin]
+                             скан объекта автопилотом: без тапов, отчёт файлом
       launch                 запустить ScanLab через DVT
       logs [-Seconds 20]     syslog live с фильтром по ScanLab
       pull [-Remote] [-Out]  забрать каталог из Documents приложения
@@ -26,7 +28,8 @@ param(
     [int]$Seconds = 20,
     [string]$Remote = "Documents/Scans",
     [string]$Out = ".\pulled",
-    [string]$Ipa = ".\ScanLab-unsigned.ipa"
+    [string]$Ipa = ".\ScanLab-unsigned.ipa",
+    [string]$Ref = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,13 +54,14 @@ tools\ios.ps1 <команда> [параметры]
   status                 состояние устройства, версия приложения, срок профиля
   install                подписать и поставить IPA через Sideloadly (-Ipa путь)
   selfcheck              самопроверка на телефоне + чтение отчёта
+  autopilot              скан объекта автопилотом (-Seconds, -Ref) без тапов
   launch                 запуск ScanLab (developer dvt launch)
   logs                   живые логи с фильтром (-Seconds, -Out)
   pull                   забрать $Remote в $Out
   query                  метаданные приложения
   ipa                    скачать свежий IPA из ветки builds
 
-Параметры: -Udid, -BundleId, -Seconds, -Remote, -Out, -Ipa
+Параметры: -Udid, -BundleId, -Seconds, -Remote, -Out, -Ipa, -Ref
 "@
 }
 
@@ -76,6 +80,13 @@ switch ($Command.ToLower()) {
     }
     "selfcheck" {
         & $Py (Join-Path $Here "ios_selfcheck.py") --udid $Udid --bundle $BundleId
+        exit $LASTEXITCODE
+    }
+    "autopilot" {
+        $auto = Join-Path $Here "ios_autopilot.py"
+        $autoArgs = @($auto, "--udid", $Udid, "--bundle", $BundleId, "--seconds", $Seconds)
+        if ($Ref) { $autoArgs += @("--reference", $Ref) }
+        & $Py @autoArgs
         exit $LASTEXITCODE
     }
     "launch" {

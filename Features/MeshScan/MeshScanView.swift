@@ -38,12 +38,137 @@ struct MeshScanView: View {
         // ARSession живёт отдельно от UIView: при уходе на другую вкладку камера
         // остаётся занятой ARKit, и «Фото» не может открыть свой AVCaptureSession.
         .onDisappear { scan.stop() }
+        // Автопилот: включается переменными окружения при запуске через DVT (см. runAutoPilot).
+        .task { await runAutoPilot() }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Готово") { knownFocused = false }
             }
         }
+    }
+
+    // MARK: - Автопилот
+
+    /// Полный проход «старт → скан → стоп → калибровка эталоном → экспорт» по таймеру,
+    /// без единого касания экрана.
+    ///
+    /// Зачем: с Windows нажать на экран телефона нечем — DVT умеет запускать приложение,
+    /// снимать скриншот и читать логи, но тапов не умеет. Поэтому «проверить самому от начала
+    /// до конца» можно только так: приложение само делает все шаги и пишет отчёт файлом,
+    /// который забирается с компьютера по USB.
+    ///
+    /// Включается при запуске через `developer dvt launch --env`:
+    /// - `SCANLAB_AUTO` — сколько секунд сканировать (например `25`);
+    /// - `SCANLAB_AUTO_REF` — `a4`, `card` или `coin` (необязательно: автокалибровка эталоном);
+    /// - `SCANLAB_AUTO_WAIT` — сколько ждать экспорт, секунды (по умолчанию 120).
+    private func runAutoPilot() async {
+        let env = ProcessInfo.processInfo.environment
+        guard let rawSeconds = env["SCANLAB_AUTO"],
+              let seconds = Double(rawSeconds),
+              seconds > 0.5 else { return }
+
+        let kind = env["SCANLAB_AUTO_REF"].flatMap { ReferenceKind(rawValue: $0) }
+        let maxExportWait = env["SCANLAB_AUTO_WAIT"].flatMap { Double($0) } ?? 120
+
+        // Экран не должен погаснуть посреди скана: локскрин останавливает ARKit-сессию,
+        // и отчёт получится пустым.
+        UIApplication.shared.isIdleTimerDisabled = true
+
+        let startedAt = Date()
+        scan.reset()
+        scan.start()
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+
+        let scannedFor = Date().timeIntervalSince(startedAt)
+        scan.stop()
+
+        if let kind = kind {
+            // Vision ищет прямоугольник на последнем кадре с картой глубины, а он появляется
+            // не мгновенно после остановки — даём камере отдать ещё несколько кадров.
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            scan.calibrate(withReference: kind)
+            try? await Task.sleep(nanoseconds: 400_000_000)
+        }
+
+        let statusAfterStop = scan.status
+        scan.finishAndExport()
+
+        var waited = 0.0
+        while scan.isBusy && waited < maxExportWait {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            waited += 0.5
+        }
+        UIApplication.shared.isIdleTimerDisabled = false
+
+        let report = autoPilotReport(
+            startedAt: startedAt,
+            scannedFor: scannedFor,
+            kind: kind,
+            statusAfterStop: statusAfterStop,
+            exportSeconds: waited
+        )
+        try? report.write(
+            to: Paths.scans.appendingPathComponent("autopilot-latest.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    /// Отчёт автопилота в JSON: те же поля читает `tools/ios_autopilot.py`.
+    private func autoPilotReport(
+        startedAt: Date,
+        scannedFor: Double,
+        kind: ReferenceKind?,
+        statusAfterStop: String,
+        exportSeconds: Double
+    ) -> String {
+        let iso = ISO8601DateFormatter()
+        var payload: [String: Any] = [
+            "time": iso.string(from: startedAt),
+            "finishedAt": iso.string(from: Date()),
+            "scanSeconds": (scannedFor * 10).rounded() / 10,
+            "exportSeconds": (exportSeconds * 10).rounded() / 10,
+            "statusAfterStop": statusAfterStop,
+            "status": scan.status,
+            "anchors": scan.anchorCount,
+            "vertices": scan.vertexCount,
+            "triangles": scan.faceCount,
+            "sizeMeters": [
+                Double(scan.sizeMeters.x),
+                Double(scan.sizeMeters.y),
+                Double(scan.sizeMeters.z),
+            ],
+            "calibrationFactor": (scan.calibrationFactor * 10_000).rounded() / 10_000,
+        ]
+        if let kind = kind {
+            payload["reference"] = kind.rawValue
+        }
+        if let smart = scan.smartSize {
+            payload["smartMeters"] = [Double(smart.x), Double(smart.y), Double(smart.z)]
+            payload["smartMethod"] = scan.smartMethod ?? ""
+        }
+        if let known = scan.calibrationKnownMM {
+            payload["calibrationKnownMM"] = known
+        }
+        if let measured = scan.calibrationMeasuredMM {
+            payload["calibrationMeasuredMM"] = measured
+        }
+        if let archive = scan.lastArchive {
+            payload["archive"] = archive.lastPathComponent
+        }
+        if let error = scan.errorText {
+            payload["error"] = error
+        }
+        payload["result"] = (scan.lastArchive != nil && scan.errorText == nil) ? "ok" : "failed"
+
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]
+        ), let text = String(data: data, encoding: .utf8) else {
+            return "{\"result\": \"failed\", \"error\": \"report not serialized\"}"
+        }
+        return text
     }
 
     private var errorBinding: Binding<Bool> {

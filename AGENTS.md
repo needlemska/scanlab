@@ -21,6 +21,7 @@
 | Запуск/логи/экран | DVT через pymobiledevice3 (`get-task-allow` есть) | `developer dvt launch`, `developer dvt screenshot`, `syslog live` |
 | Установка | Sideloadly через UI Automation — агент ставит сам | `.\tools\ios.ps1 install -Ipa .\dist\ScanLab-0.15.4.ipa` |
 | Самопроверка на телефоне | `SCANLAB_DIAGNOSE=1` + `apps pull` файла отчёта | `.\tools\ios.ps1 selfcheck` |
+| Скан объекта без тапов | автопилот в приложении: `SCANLAB_AUTO=<сек>` (+`SCANLAB_AUTO_REF`), отчёт `Documents/Scans/autopilot-latest.txt` | `.\tools\ios.ps1 autopilot -Seconds 25 -Ref a4` |
 | Тесты Swift-логики | Swift 6.4.1 для Windows — **если стоит**; `tools\logic-test.ps1` | `powershell -File tools\logic-test.ps1` |
 | Тесты Python | `tools\tests\test_calibration.py` | `python -m pytest` или прямой запуск |
 
@@ -53,7 +54,7 @@
 5. **Установка** — агент сам: `.\tools\ios.ps1 install -Ipa .\dist\ScanLab-<версия>.ipa`
    (Sideloadly принимает путь аргументом, кнопка Start нажимается через UI Automation;
    пароль Apple ID не спрашивается, пока жива сессия). После установки команда сама печатает `status`.
-6. **Проверка на устройстве** — `.\tools\ios.ps1 selfcheck` (7 проверок в файл),
+6. **Проверка на устройстве** — `.\tools\ios.ps1 selfcheck` (8 проверок в файл), `.\tools\ios.ps1 autopilot -Seconds 25` (скан объекта без тапов),
    `.\tools\ios.ps1 launch`, `.\tools\ios.ps1 logs -Seconds 20`.
 7. **Отчёт** — в чат: что проверено, чем именно (номер прогона, версия, UDID), что осталось
    непроверенным и почему.

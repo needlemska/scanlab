@@ -136,6 +136,28 @@ $b = "com.scanlab.app.3CB3DRNXR2"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 selfcheck
 ```
 
+### 6в. Скан объекта без тапов (автопилот)
+
+С Windows нажать на экран телефона нечем, поэтому приложение умеет **автопилот**:
+запускается с `SCANLAB_AUTO=<секунды>`, само начинает сканирование, через N секунд
+останавливается, при необходимости калибруется эталоном в кадре (`SCANLAB_AUTO_REF=a4|card|coin`),
+экспортирует папку `lidar-…` и пишет `Documents/Scans/autopilot-latest.txt` (JSON).
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 autopilot -Seconds 25 -Ref a4
+```
+
+Под капотом `tools/ios_autopilot.py`: `developer dvt launch` с `--env SCANLAB_TAB=0
+--env SCANLAB_AUTO=25 --env SCANLAB_AUTO_REF=a4`, затем опрос `apps pull` отчёта раз в 5 с.
+Коды возврата: 0 — скан и экспорт прошли (`result: ok`), 2 — автопилот отработал с ошибкой,
+3 — свежего отчёта нет. В отчёте: `scanSeconds`, `anchors/vertices/triangles`, `sizeMeters`
+(габарит меша), `smartMeters` (умный габарит), `calibrationFactor`, `archive`, `error`.
+
+Ограничение, которое нельзя обойти: **обходить предмет должен человек** — телефон сам вокруг
+объекта не поедет. Автопилот убирает все нажатия (старт, стоп, калибровка, экспорт, отчёт),
+но не движение. Для проверки масштаба этого достаточно: поставить телефон, обойти стол,
+дальше всё делает агент.
+
 Внутри (`tools/ios_selfcheck.py`) — те же два шага вручную:
 
 ```powershell
