@@ -157,7 +157,9 @@ gh run download <run-id> -R needlemska/scanlab -n sim-out -D .scratch/sim-out
 ### 2026-11-12. `get-ipa.ps1` ставит IPA в индекс git
 
 - `git checkout FETCH_HEAD -- ScanLab-unsigned.ipa` обходит `.gitignore` и делает файл staged (`A`).
-- Лечение: `git reset -- ScanLab-unsigned.ipa` перед коммитом; в `main` IPA не попадает.
+- Исправлено в самом скрипте: сразу после `checkout` идёт `git reset -q -- ScanLab-unsigned.ipa`
+  (коммит `a9b4818`). Если видите `A  ScanLab-unsigned.ipa` — скрипт старый, хватит
+  `git reset -- ScanLab-unsigned.ipa`.
 
 ### 2026-11-12. Разбор вывода PowerShell'ом молча даёт пустые поля
 
