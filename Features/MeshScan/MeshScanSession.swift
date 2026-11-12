@@ -42,6 +42,11 @@ final class MeshScanSession: NSObject, ObservableObject {
     private(set) var anchors: [UUID: ARMeshAnchor] = [:]
     weak var arView: ARView?
     private var lastRecount = Date.distantPast
+    /// Сессия стоит на паузе, но уже что-то накоплено — можно продолжать без сброса.
+    private var isPaused = false
+    /// Поколение работы: увеличивается на reset()/start(), чтобы поздние задачи
+    /// экспорта не писали результат в уже новую сессию.
+    private var generation = 0
 
     /// Кэш локального AABB якоря: пока число вершин не изменилось, вершины не перечитываем.
     private struct AnchorBox {
@@ -90,19 +95,49 @@ final class MeshScanSession: NSObject, ObservableObject {
         faceCount = 0
         anchorCount = 0
         errorText = nil
+        rulerPoints.removeAll()  // точки старой мировой системы после сброса трекинга недействительны
+        generation &+= 1
 
         arView?.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
         isScanning = true
+        isPaused = false
         status = "Сканирование: ведите телефоном медленно, 0.3–2 м"
+    }
+
+    /// Продолжение после «Пауза»: та же система координат, накопленный меш живёт.
+    /// Раньше единственной кнопкой был start(), а он делает resetTracking и стирает
+    /// anchors — то есть продолжения не существовало, хотя статус его обещал.
+    func resume() {
+        guard isPaused, let arView else {
+            start()
+            return
+        }
+        let configuration = ARWorldTrackingConfiguration()
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+            configuration.sceneReconstruction = .meshWithClassification
+        } else {
+            configuration.sceneReconstruction = .mesh
+        }
+        configuration.planeDetection = [.horizontal, .vertical]
+        configuration.environmentTexturing = .automatic
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+            configuration.frameSemantics.insert(.sceneDepth)
+        }
+        arView.session.run(configuration, options: [])
+        isScanning = true
+        isPaused = false
+        status = "Продолжаю: ведите телефоном медленно, 0.3–2 м"
     }
 
     func stop() {
         arView?.session.pause()
         isScanning = false
-        status = "Пауза. Можно продолжить или экспортировать"
+        isPaused = !anchors.isEmpty
+        status = isPaused ? "Пауза. Можно продолжить или экспортировать" : "Пауза"
     }
 
     func reset() {
+        generation &+= 1
         arView?.session.pause()
         anchors.removeAll()
         anchorBoxes.removeAll()
@@ -115,6 +150,9 @@ final class MeshScanSession: NSObject, ObservableObject {
         smartBusy = false
         trackingWarning = nil
         isScanning = false
+        isPaused = false
+        isBusy = false
+        errorText = nil
         lastArchive = nil
         rulerPoints.removeAll()
         calibrationKnownMM = nil
@@ -172,11 +210,14 @@ final class MeshScanSession: NSObject, ObservableObject {
         let measuredMM = Double(distance) * 1000
         let factor = knownMM / measuredMM
 
-        // Отсекаем случайные тапы: поправка больше ±5× — это не эталон, а промах.
-        guard factor.isFinite, factor > 0.2, factor < 5 else {
+        // Допуск тот же порядок, что у автокалибровки по эталону (ReferenceRect):
+        // LiDAR ошибается на единицы процентов, поэтому поправка больше ±2× —
+        // это не «эталон снят неточно», а промах двумя тапами по 2–3 см.
+        guard factor.isFinite, factor > 0.5, factor < 2.0 else {
             status = String(
-                format: "Не похоже на эталон: замер %.0f мм против %.0f мм. Переставьте точки.",
-                measuredMM, knownMM
+                format: "Замер %.0f мм против %.0f мм — поправка ×%.2f слишком велика. "
+                    + "Проверьте, что тапнули два конца эталона, а не соседние точки.",
+                measuredMM, knownMM, factor
             )
             return
         }
@@ -235,10 +276,12 @@ final class MeshScanSession: NSObject, ObservableObject {
         // Копию снимаем на главном потоке: читать буферы ARKit из detached-задачи
         // нельзя, сессия их переписывает прямо во время расчёта.
         let snapshot = SmartBox.snapshot(anchors: Array(anchors.values))
+        let token = generation
 
         Task.detached(priority: .userInitiated) {
             let result = SmartBox.measure(snapshot)
             await MainActor.run {
+                guard token == self.generation else { return }
                 self.smartBusy = false
                 if let result = result {
                     self.smartSize = result.size
@@ -273,6 +316,7 @@ final class MeshScanSession: NSObject, ObservableObject {
         let factor = Float(calibrationFactor)
         let knownMM = calibrationKnownMM
         let measuredMM = calibrationMeasuredMM
+        let token = generation
 
         Task.detached(priority: .userInitiated) {
             do {
@@ -281,13 +325,24 @@ final class MeshScanSession: NSObject, ObservableObject {
                 let stats = try MeshExporter.exportOBJ(anchors: snapshot, to: objURL, scale: factor)
 
                 // STL рядом с OBJ: слайсеры открывают его напрямую, без конвертации.
+                // Ошибку STL не глотаем: без файла пользователь на ПК ищет mesh.stl
+                // и не понимает, почему его нет, а в meta должны остаться следы.
                 let stlURL = directory.appendingPathComponent("mesh.stl")
-                let stlStats = try? MeshExporter.exportSTL(anchors: snapshot, to: stlURL, scale: factor)
+                var stlNote: String?
+                var stlStats: MeshExporter.Stats?
+                do {
+                    stlStats = try MeshExporter.exportSTL(anchors: snapshot, to: stlURL, scale: factor)
+                } catch {
+                    stlNote = error.localizedDescription
+                    try? FileManager.default.removeItem(at: stlURL)
+                }
 
                 var extra: [String: Any] = [:]
                 if let stlStats = stlStats {
                     extra["stlFile"] = "mesh.stl"
                     extra["stlTriangles"] = stlStats.faces
+                } else {
+                    extra["stlError"] = stlNote ?? "STL не создан"
                 }
                 if let knownMM = knownMM, let measuredMM = measuredMM, abs(factor - 1) > 0.0001 {
                     extra["scaleFactor"] = Double(factor)
@@ -304,6 +359,8 @@ final class MeshScanSession: NSObject, ObservableObject {
                 let size = stats.size
                 let calibrated = abs(factor - 1) > 0.0001
                 await MainActor.run {
+                    // Сессию успели сбросить/перезапустить — результат относится к прошлому скану.
+                    guard token == self.generation else { return }
                     self.lastArchive = archive
                     self.isBusy = false
                     let base = String(
@@ -311,10 +368,12 @@ final class MeshScanSession: NSObject, ObservableObject {
                         stats.vertices, size.x, size.y, size.z
                     )
                     let suffix = calibrated ? String(format: " (поправка ×%.4f)", factor) : ""
-                    self.status = base + suffix
+                    let stlSuffix = stlStats == nil ? " · STL не создан" : ""
+                    self.status = base + suffix + stlSuffix
                 }
             } catch {
                 await MainActor.run {
+                    guard token == self.generation else { return }
                     self.errorText = error.localizedDescription
                     self.isBusy = false
                     self.status = "Ошибка экспорта"
@@ -327,9 +386,14 @@ final class MeshScanSession: NSObject, ObservableObject {
 
     private func ingest(_ meshes: [ARMeshAnchor]) {
         for mesh in meshes {
-            // ARKit уточняет якорь на месте: вершины пересчитываются, а число
-            // часто не меняется — по одному счётчику кэш AABB протухает молча.
-            anchorBoxes[mesh.identifier] = nil
+            // Кэш локального AABB сбрасываем только когда вершины реально другие
+            // (число не совпало): ARKit присылает обновление якоря на каждом кадре,
+            // и безусловная инвалидация заставляла recount перечитывать все
+            // вершины заново несколько раз в секунду на главном потоке.
+            let count = mesh.geometry.vertices.count
+            if let cached = anchorBoxes[mesh.identifier], cached.count != count {
+                anchorBoxes[mesh.identifier] = nil
+            }
             anchors[mesh.identifier] = mesh
         }
         if Date().timeIntervalSince(lastRecount) > 0.25 {

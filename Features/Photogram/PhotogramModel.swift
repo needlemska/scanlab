@@ -96,23 +96,47 @@ final class PhotogramModel: ObservableObject {
         }
 
         // Обновляем архив, чтобы USDZ уехал на компьютер вместе с кадрами.
+        // ZIP на 100+ МБ нельзя собирать на главном акторе: интерфейс замирал
+        // ровно на этом шаге, а ProgressView переставал обновляться.
         stage = "Упаковываю архив…"
         let archive = Paths.zipURL(for: folder)
-        try? FileManager.default.removeItem(at: archive)
-        try? ZipWriter.write(directory: folder, to: archive)
+        let folderToZip = folder
+        let zipOK = await Task.detached(priority: .utility) { () -> Bool in
+            try? FileManager.default.removeItem(at: archive)
+            do {
+                try ZipWriter.write(directory: folderToZip, to: archive)
+                return true
+            } catch {
+                return false
+            }
+        }.value
 
         let attributes = try? FileManager.default.attributesOfItem(atPath: output.path)
         let size = (attributes?[.size] as? Int) ?? 0
-        message = "Готово: model.usdz, \(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))"
+        let suffix = zipOK ? "" : " (архив не собрался)"
+        message = "Готово: model.usdz, \(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))\(suffix)"
         stage = "Готово"
         progress = 1
     }
 
-    /// Копирует в отдельную папку только изображения — сессия читает всю папку на вход.
+    /// Сбрасывает результат прошлого прогона: следующий скан не должен
+    /// показывать «Готово: model.usdz» от предыдущей папки.
+    func reset() {
+        guard !isRunning else { return }
+        progress = 0
+        stage = ""
+        message = nil
+        folderName = nil
+    }
+
+    /// Копирует во временную папку только изображения — сессия читает всю папку на вход.
     private func prepareInput(folder: URL) throws -> (url: URL, count: Int) {
         let fm = FileManager.default
-        let input = folder.appendingPathComponent("photogram-input")
-        try? fm.removeItem(at: input)
+        // Копии кадров живут в системном temp, а не внутри скана: иначе каждый
+        // скан нёс второй комплект JPEG (сотни МБ), он же попадал в ZIP и в
+        // выгрузку на ПК, а упавшее приложение оставляло дубли навсегда.
+        let input = fm.temporaryDirectory
+            .appendingPathComponent("photogram-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: input, withIntermediateDirectories: true)
 
         let names = (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []

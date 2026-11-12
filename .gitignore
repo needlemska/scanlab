@@ -22,3 +22,6 @@ dist/
 ScanLab-unsigned.ipa
 *.log
 Models/
+
+# Логи syslog, снятые tools/ios_logs.py
+logs/

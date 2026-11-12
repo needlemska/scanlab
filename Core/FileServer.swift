@@ -105,9 +105,8 @@ final class FileServer {
         if path.hasPrefix("/zip/") {
             let raw = String(path.dropFirst("/zip/".count))
             let name = raw.removingPercentEncoding ?? raw
-            if let (fileName, data) = makeZip(name: name, root: root) {
-                send(status: "200 OK", type: "application/zip", body: data,
-                     filename: fileName, on: connection)
+            if let (fileName, file) = makeZip(name: name, root: root) {
+                send(file: file, filename: fileName, on: connection)
             } else {
                 send(status: "404 Not Found", type: "text/plain; charset=utf-8",
                      body: Data("Нет такого скана: \(name)".utf8), on: connection)
@@ -117,6 +116,66 @@ final class FileServer {
 
         send(status: "404 Not Found", type: "text/plain; charset=utf-8",
              body: Data("Только / и /zip/<имя>".utf8), on: connection)
+    }
+
+    /// Отдаёт файл кусками по 1 МиБ. Раньше архив целиком читался в `Data` —
+    /// на скане в 400 МБ это давало всплеск памяти и падение по jetsam.
+    private func send(file: URL, filename: String, on connection: NWConnection) {
+        guard let handle = try? FileHandle(forReadingFrom: file) else {
+            try? FileManager.default.removeItem(at: file)
+            send(status: "500 Internal Server Error", type: "text/plain; charset=utf-8",
+                 body: Data("Не удалось открыть архив".utf8), on: connection)
+            return
+        }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
+        let size = (attributes?[.size] as? Int) ?? 0
+
+        var header = "HTTP/1.1 200 OK\r\n"
+        header += "Content-Type: application/zip\r\n"
+        header += "Content-Length: \(size)\r\n"
+        header += "Connection: close\r\n"
+        header += "Content-Disposition: attachment; filename=\"\(filename)\"\r\n"
+        header += "\r\n"
+
+        connection.send(content: Data(header.utf8), completion: .contentProcessed { error in
+            if error != nil {
+                try? handle.close()
+                try? FileManager.default.removeItem(at: file)
+                connection.cancel()
+                return
+            }
+            self.pump(handle: handle, remaining: size, file: file, on: connection)
+        })
+    }
+
+    private func pump(handle: FileHandle, remaining: Int, file: URL, on connection: NWConnection) {
+        guard remaining > 0 else {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: file)
+            connection.cancel()
+            return
+        }
+        let chunkSize = min(1 << 20, remaining)
+        let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
+        guard !chunk.isEmpty else {
+            // Файл короче заголовка Content-Length — рвём соединение, чтобы
+            // клиент не принял обрезанный ZIP за целый.
+            try? handle.close()
+            try? FileManager.default.removeItem(at: file)
+            connection.cancel()
+            return
+        }
+        connection.send(content: chunk, completion: .contentProcessed { error in
+            if error != nil {
+                try? handle.close()
+                try? FileManager.default.removeItem(at: file)
+                connection.cancel()
+                return
+            }
+            // Отправка следующего куска начинается только после подтверждения
+            // предыдущего — без этого NWConnection копил мегабайты в очереди.
+            self.pump(handle: handle, remaining: remaining - chunk.count, file: file, on: connection)
+        })
     }
 
     private func send(status: String, type: String, body: Data, filename: String? = nil,
@@ -139,7 +198,7 @@ final class FileServer {
 
     // MARK: - Содержимое
 
-    private func makeZip(name: String, root: URL) -> (String, Data)? {
+    private func makeZip(name: String, root: URL) -> (String, URL)? {
         // Защита от выхода за пределы папки сканов.
         guard !name.isEmpty, !name.contains(".."), !name.contains("/"), !name.contains("\\") else {
             return nil
@@ -152,15 +211,15 @@ final class FileServer {
         }
 
         let temporary = fm.temporaryDirectory.appendingPathComponent("scanlab-\(UUID().uuidString).zip")
-        defer { try? fm.removeItem(at: temporary) }
 
         do {
             try ZipWriter.write(directory: directory, to: temporary)
         } catch {
+            try? fm.removeItem(at: temporary)
             return nil
         }
-        guard let data = try? Data(contentsOf: temporary) else { return nil }
-        return ("\(name).zip", data)
+        // Файл убирает send(file:) после отдачи — держать его в памяти нельзя.
+        return ("\(name).zip", temporary)
     }
 
     private func listing(root: URL) -> Data {

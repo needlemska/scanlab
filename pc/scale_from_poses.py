@@ -27,6 +27,9 @@ import sys
 
 import numpy as np
 
+from sfm_io import find_images_txt, image_centers, quat_to_rot as _quat_to_rot
+from sfm_io import read_images_txt as _read_images
+
 MIN_PAIRS = 6
 SCALE_LIMITS = (0.05, 20.0)
 
@@ -38,46 +41,12 @@ def log(message: str = "") -> None:
 # ---------------------------------------------------------------- COLMAP TXT
 
 def quat_to_rot(qw: float, qx: float, qy: float, qz: float) -> np.ndarray:
-    norm = qw * qw + qx * qx + qy * qy + qz * qz
-    if norm <= 0:
-        return np.eye(3)
-    s = 2.0 / norm
-    return np.array([
-        [1 - s * (qy * qy + qz * qz), s * (qx * qy - qz * qw), s * (qx * qz + qy * qw)],
-        [s * (qx * qy + qz * qw), 1 - s * (qx * qx + qz * qz), s * (qy * qz - qx * qw)],
-        [s * (qx * qz - qy * qw), s * (qy * qz + qx * qw), 1 - s * (qx * qx + qy * qy)],
-    ])
-
-
-def find_images_txt(model: str) -> str:
-    if os.path.isfile(model):
-        return model
-    for candidate in ("images.txt", os.path.join("sparse", "0.txt", "images.txt")):
-        path = os.path.join(model, candidate)
-        if os.path.isfile(path):
-            return path
-    raise SystemExit(f"images.txt not found in {model}")
+    return _quat_to_rot(np.array([qw, qx, qy, qz], dtype=float))
 
 
 def read_images_txt(path: str) -> dict[str, np.ndarray]:
-    """Центры камер COLMAP: C = -R^T * t."""
-    centers: dict[str, np.ndarray] = {}
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            parts = line.split()
-            if len(parts) < 10:
-                continue
-            name = parts[9]
-            if not name.lower().endswith((".jpg", ".jpeg", ".png")):
-                continue
-            try:
-                qw, qx, qy, qz = (float(v) for v in parts[1:5])
-                tx, ty, tz = (float(v) for v in parts[5:8])
-            except ValueError:
-                continue
-            rot = quat_to_rot(qw, qx, qy, qz)
-            centers[name] = -rot.T @ np.array([tx, ty, tz], dtype=float)
-    return centers
+    """Центры камер COLMAP: C = -R^T * t (разбор общий, см. pc/sfm_io.py)."""
+    return image_centers(_read_images(path))
 
 
 # ---------------------------------------------------------------- ARKit shots

@@ -20,6 +20,9 @@ struct AutoScanView: View {
             .padding()
         }
         .background(Color.black)
+        // Уход с вкладки не должен обрывать скан «молча»: останавливаем сессию
+        // и фиксируем shots.json, иначе папка остаётся без поз и интринсиков.
+        .onDisappear { model.stopScan() }
     }
 
     private var coverageCard: some View {
@@ -159,12 +162,19 @@ struct ScanARContainer: UIViewRepresentable {
 
     final class Coordinator: NSObject, ARSessionDelegate {
         private let model: AutoScanModel
+        /// Колбэки ARKit идут последовательно с одной очереди, поэтому счётчик
+        /// можно держать здесь: каждый второй кадр пропускаем — 60 задач в
+        /// секунду на главном акторе только грели телефон, решения о съёмке
+        /// всё равно принимаются не чаще 0.35 с.
+        private var frameIndex = 0
 
         init(model: AutoScanModel) {
             self.model = model
         }
 
         nonisolated func session(_ session: ARSession, didUpdate frame: ARFrame) {
+            frameIndex += 1
+            guard frameIndex % 2 == 0 else { return }
             Task { @MainActor in
                 model.ingest(frame, session: session)
             }

@@ -208,14 +208,28 @@ def describe_shots(dataset: str) -> dict:
 
 
 def resolve_scale(args, dataset: str, frames: str, info: dict) -> float:
-    """Масштаб реконструкции: глубина LiDAR точнее поз, поэтому она первая."""
+    """Масштаб реконструкции: глубина LiDAR точнее поз, поэтому она первая.
+
+    ВАЖНО: если масштаб определить не удалось, пайплайн продолжается, но модель
+    остаётся в произвольных единицах COLMAP. Тихий возврат 1.0 опасен: measure.py
+    выдаёт правдоподобные на вид миллиметры, которые отличаются от реальных в
+    неизвестное число раз. Поэтому такой исход loud: и в лог, и в info["scale"].
+    """
+    def unscaled(reason: str) -> float:
+        log("")
+        log(f"[scale] ВНИМАНИЕ: масштаб не определён ({reason}).")
+        log("        Размеры из этой реконструкции — в произвольных единицах COLMAP,")
+        log("        калибруйте: --fit-mm 100 --fit-axis z или --scale <число>.")
+        info["scale"] = {"value": 1.0, "source": "none", "reason": reason}
+        return 1.0
+
     if args.scale > 0:
         info["scale"] = {"value": args.scale, "source": "cli"}
         return args.scale
 
     model_dir = os.path.join(dataset, "sparse", "0-txt")
     if not os.path.isdir(model_dir):
-        return 1.0
+        return unscaled("модели sparse/0-txt нет — COLMAP не дошёл до разреженной модели")
 
     if not args.no_scale_from_depth:
         try:
@@ -240,11 +254,11 @@ def resolve_scale(args, dataset: str, frames: str, info: dict) -> float:
             log(f"[scale] depth not used: {exc}")
 
     if args.no_scale_from_poses:
-        return 1.0
+        return unscaled("позы отключены флагом --no-scale-from-poses")
 
     shots = os.path.join(dataset, "shots.json")
     if not (os.path.isfile(shots) and os.path.isdir(model_dir)):
-        return 1.0
+        return unscaled("в наборе нет shots.json с позами ARKit")
 
     try:
         import scale_from_poses as sfp
@@ -253,18 +267,16 @@ def resolve_scale(args, dataset: str, frames: str, info: dict) -> float:
         poses = sfp.read_arkit_shots(shots)
         pairs = sfp.collect_pairs(images, poses)
         if len(pairs) < sfp.MIN_PAIRS:
-            log(f"[scale] matched cameras: {len(pairs)} < {sfp.MIN_PAIRS}, scale untouched")
-            log("        (поворотный стол? камера стоит — совмещать траектории нечем)")
-            return 1.0
+            log(f"[scale] matched cameras: {len(pairs)} < {sfp.MIN_PAIRS}")
+            return unscaled("совмещённых камер меньше минимума (поворотный стол? "
+                            "камера стоит — траектории нечем совмещать)")
         result = sfp.robust_scale(pairs)
     except Exception as exc:  # noqa: BLE001 — пайплайн не должен падать из-за масштаба
-        log(f"[scale] failed: {exc}")
-        return 1.0
+        return unscaled(f"оценка по позам не удалась: {exc}")
 
     scale = float(result["scale"])
     if not (sfp.SCALE_LIMITS[0] <= scale <= sfp.SCALE_LIMITS[1]):
-        log(f"[scale] implausible x{scale:.4f}, ignored")
-        return 1.0
+        return unscaled(f"оценка по позам неправдоподобна: x{scale:.4f}")
 
     info["scale"] = {
         "value": round(scale, 6),

@@ -178,6 +178,9 @@ def write_depth_dataset(root: str, factor: float, points: int = 240, views: int 
             f"{image_id} " + " ".join(f"{value:.9f}" for value in quaternion) + " "
             + " ".join(f"{value:.9f}" for value in shift_sfm) + f" 1 {name}"
         )
+        # POINTS2D пишем не пустой строкой, а настоящими треками: иначе тест
+        # не проверяет главное — что строки точек не принимаются за камеры.
+        point_pairs: list[str] = []
         image_lines.append("")
 
         depth = np.zeros((DEPTH_H, DEPTH_W), dtype="<f4")
@@ -186,6 +189,7 @@ def write_depth_dataset(root: str, factor: float, points: int = 240, views: int 
             if camera_point[2] <= 0.05:
                 continue
             u, v = camera.project(camera_point[0], camera_point[1], camera_point[2])
+            point_pairs.append(f"{point_id * 100 + image_id} {u:.4f} {v:.4f} -1")
             du = int(round(u * DEPTH_W / IMG_W))
             dv = int(round(v * DEPTH_H / IMG_H))
             if not (1 <= du < DEPTH_W - 1 and 1 <= dv < DEPTH_H - 1):
@@ -196,6 +200,8 @@ def write_depth_dataset(root: str, factor: float, points: int = 240, views: int 
                 f"{point_id * 100 + image_id} " + " ".join(f"{value:.9f}" for value in sfm_point)
                 + f" 128 128 128 0.5 {image_id} 0"
             )
+
+        image_lines[-1] = " ".join(point_pairs)
 
         depth_file = name.replace(".jpg", "_depth.f32")
         if holes > 0:

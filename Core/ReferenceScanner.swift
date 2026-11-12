@@ -61,11 +61,13 @@ enum ReferenceScanner {
         guard let frame else { return .failure(.noFrame) }
 
         let request = VNDetectRectanglesRequest()
-        // Соотношение сторон задаётся как ширина/высота, а эталон можно положить
-        // как угодно: у A4 это 0,71 в одном положении и 1,41 в другом. Прежний
-        // потолок 1,0 отбрасывал повёрнутый лист ещё до проверки формы.
+        // Vision считает aspect как «короткая сторона / длинная», то есть всегда
+        // 0…1 независимо от поворота листа: для A4 это 0,71 в любом положении.
+        // Поэтому потолок 1,0 ничего не отбрасывает, а вот выход за диапазон
+        // 0…1 (например 3,0) ломает валидацию запроса. Выбор эталона и проверка
+        // формы живут в ReferenceRect, здесь фильтр только по размеру и углам.
         request.minimumAspectRatio = 0.15
-        request.maximumAspectRatio = 3.0
+        request.maximumAspectRatio = 1.0
         request.quadratureTolerance = 30
         request.minimumSize = 0.12
         request.minimumConfidence = 0.4

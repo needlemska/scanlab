@@ -19,40 +19,25 @@ import sys
 
 import numpy as np
 
+import sfm_io as sfm
+
 MAX_STEP_ERROR_DEG = 3.0
 MAX_AXIS_SPREAD_DEG = 10.0
-MAX_RADIUS_SPREAD = 0.10  # разброс радиуса окружности камер (информативно)
-
-
-def quat_to_rot(q: np.ndarray) -> np.ndarray:
-    w, x, y, z = q
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-    ])
+MAX_RADIUS_SPREAD = 0.10  # разброс радиуса окружности камер
 
 
 def read_model(model_dir: str) -> list[dict]:
-    images: list[dict] = []
-    with open(os.path.join(model_dir, "images.txt"), "r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if len(parts) < 10:
-                continue
-            qvec = np.array([float(value) for value in parts[1:5]])
-            tvec = np.array([float(value) for value in parts[5:8]])
-            R = quat_to_rot(qvec)
-            images.append({
-                "id": int(parts[0]),
-                "name": parts[9],
-                "R": R,
-                "center": -R.T @ tvec,
-            })
-    return images
+    """Камеры модели COLMAP (общий разбор, см. pc/sfm_io.py)."""
+    images = sfm.read_images_txt(os.path.join(model_dir, "images.txt"))
+    result: list[dict] = []
+    for image_id, image in images.items():
+        result.append({
+            "id": image_id,
+            "name": image["name"],
+            "R": image["R"],
+            "center": -image["R"].T @ image["t"],
+        })
+    return result
 
 
 def load_shots(shots_dir: str) -> dict[str, dict]:
@@ -155,8 +140,18 @@ def analyze(model_dir: str, shots_dir: str) -> dict:
             heights = np.abs((centers - centroid) @ normal)
             result["planarity_fraction"] = round(float(heights.max() / median_radius), 4)
 
+    # Центры камер стола лежат на окружности: это отдельная проверка от шага.
+    # Съёмка «с рук под видом стола» даёт шаг по yaw, близкий к заявленному, но
+    # разъезжающийся радиус и не лежащие в плоскости центры — поэтому метрики
+    # входят в вердикт, а не печатаются «для информации».
+    radius_ok = True
+    if "radius_spread_fraction" in result:
+        radius_ok = (result["radius_spread_fraction"] <= MAX_RADIUS_SPREAD
+                     and result["planarity_fraction"] <= MAX_RADIUS_SPREAD)
+    result["circle_ok"] = bool(radius_ok)
     result["ok"] = bool(result["median_step_error_deg"] <= MAX_STEP_ERROR_DEG
-                        and result.get("axis_spread_deg", 0.0) <= MAX_AXIS_SPREAD_DEG)
+                        and result.get("axis_spread_deg", 0.0) <= MAX_AXIS_SPREAD_DEG
+                        and radius_ok)
     result["details"] = handled
     return result
 
@@ -182,8 +177,10 @@ def main() -> int:
               f"{result['max_step_error_deg']:.2f} deg max")
         if "axis" in result:
             print(f"axis:       {result['axis']} (spread {result['axis_spread_deg']:.2f} deg)")
-        if "camera_drift_fraction" in result:
-            print(f"radius:     spread {result['radius_spread_fraction'] * 100:.1f} %, planar {result['planarity_fraction'] * 100:.1f} %")
+        if "radius_spread_fraction" in result:
+            print(f"circle:     radius spread {result['radius_spread_fraction'] * 100:.1f} %, "
+                  f"planar {result['planarity_fraction'] * 100:.1f} % "
+                  f"({'ok' if result['circle_ok'] else 'not a turntable — handheld?'})")
         print("verdict:    " + ("ok" if result["ok"] else "mismatch — check sector counting or handheld shots"))
     return 0 if result["ok"] else 1
 

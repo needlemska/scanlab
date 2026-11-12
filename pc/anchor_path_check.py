@@ -10,10 +10,35 @@ import struct
 
 import numpy as np
 
-from smart_measure import smart_measure
+import measure
 
 DIMS = (0.10, 0.06, 0.04)
 CELLS = 12
+
+
+def smart_measure(points, normals, weights):
+    """Порт Swift-пути `SmartBoundingBox.measure(facePoints:normals:weights:)`.
+
+    На телефоне точки приходят из ARMeshAnchor (вершины + нормали граней +
+    площади), поэтому здесь используется та же логика кластеров нормалей и
+    триммированных габаритов, что и в measure.py, но без граней.
+    Возвращает {"dims": (3,), "method": str} или None, если поверхность
+    не даёт трёх устойчивых осей.
+    """
+    points = np.asarray(points, dtype=np.float64)
+    normals = np.asarray(normals, dtype=np.float64)
+    weights = np.asarray(weights, dtype=np.float64)
+    lengths = np.linalg.norm(normals, axis=1)
+    keep = lengths > 1e-12
+    if int(keep.sum()) < measure.MIN_FACES:
+        return None
+    normals = normals[keep] / lengths[keep][:, None]
+    weights = weights[keep]
+    axes, _ = measure._obb(points, normals, weights)
+    if axes is None:
+        return None
+    dims = np.array([measure._tail(points @ axes[i]) for i in range(3)])
+    return {"dims": dims, "method": "OBB"}
 
 
 def box_mesh(dims, cells):

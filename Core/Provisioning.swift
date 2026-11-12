@@ -47,7 +47,10 @@ enum Provisioning {
             ?? Date.distantPast
         let team = (dictionary["TeamIdentifier"] as? [String])?.first
         let secondsLeft = expires.timeIntervalSinceNow
-        let daysLeft = Int((secondsLeft / 86_400).rounded(.down))
+        // Округляем вверх: свежий 7-дневный профиль показывает 7, а не 6, и
+        // в последние сутки остаётся «1 день», а не 0 (иначе диагностика
+        // объявляла живой профиль просроченным).
+        let daysLeft = Int((secondsLeft / 86_400).rounded(.up))
         return Info(name: name,
                     expires: expires,
                     teamIdentifier: team,

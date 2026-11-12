@@ -12,6 +12,15 @@ struct ProCaptureView: View {
 
             VStack(spacing: 10) {
                 topBar
+                if let warning = model.depthWarning {
+                    Text(warning)
+                        .font(.caption2)
+                        .foregroundStyle(.yellow)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.black.opacity(0.5), in: Capsule())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 Spacer(minLength: 0)
                 panel
             }
@@ -56,6 +65,19 @@ struct ProCaptureView: View {
     }
 
     private var panel: some View {
+        VStack(spacing: 12) {
+            settings
+            actionButtons
+        }
+        .padding(14)
+        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 18))
+        .tint(.white)
+    }
+
+    /// Настройки заперты на время серии: смена ISO/выдержки пересчитывает
+    /// диапазоны активного формата, и часть кадров уходит с другим экспонированием —
+    /// для фотограмметрии это как разные камеры.
+    private var settings: some View {
         VStack(spacing: 12) {
             // Считаем поворот телефона, а не стола: на вращающемся столе
             // телефон неподвижен и секторы не растут. Поэтому «обход в руке».
@@ -152,12 +174,8 @@ struct ProCaptureView: View {
                     .foregroundStyle(.white)
                     .frame(width: 48, alignment: .trailing)
             }
-
-            actionButtons
         }
-        .padding(14)
-        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 18))
-        .tint(.white)
+        .disabled(model.isCapturing)
     }
 
     private var actionButtons: some View {
@@ -184,6 +202,22 @@ struct ProCaptureView: View {
                     .foregroundStyle(.white)
             }
             .disabled(!model.isReady || model.isCapturing)
+
+            // Серию нужно уметь прервать руками: раньше единственным способом
+            // остановить 60 кадров был уход с вкладки, и кадры терялись.
+            if model.isCapturing {
+                Button(role: .destructive) {
+                    // stop() гасит сессию и дописывает метаданные, start()
+                    // возвращает камеру, чтобы можно было снимать дальше.
+                    model.stop()
+                    model.start()
+                } label: {
+                    Label("Остановить", systemImage: "stop.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+            }
         }
     }
 }

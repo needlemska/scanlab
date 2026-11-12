@@ -47,6 +47,7 @@ final class AutoScanModel: NSObject, ObservableObject {
         lastDirection = nil
         shotsMeta = []
         intrinsics = [:]
+        imageSize = .zero
         shots = 0
         coverage = 0
         framesSinceStart = 0
@@ -76,13 +77,22 @@ final class AutoScanModel: NSObject, ObservableObject {
     }
 
     func reset() {
-        stopScan()
+        session?.pause()
+        isScanning = false
+        // «Заново» — это отказ от скана, а не его завершение: shots.json для него
+        // не пишем, а пустую папку удаляем, иначе в библиотеке копятся дубли.
+        if let folder, shots == 0 {
+            try? FileManager.default.removeItem(at: folder)
+        }
         folder = nil
         shots = 0
         coverage = 0
         center = nil
         covered = [Bool](repeating: false, count: ScanCoach.count)
         shotsMeta = []
+        intrinsics = [:]
+        imageSize = .zero
+        lastDirection = nil
         hint = "Наведите камеру на предмет"
         status = ""
     }
@@ -115,9 +125,10 @@ final class AutoScanModel: NSObject, ObservableObject {
         }
 
         let distance = ScanCoach.distance(cameraPosition, center)
-        ScanCoach.markCovered(&covered, camera: cameraPosition, center: center)
-        coverage = ScanCoach.coverage(covered)
-        hint = ScanCoach.hint(covered: covered, distance: distance, tracking: tracking)
+        let newCoverage = ScanCoach.coverage(covered)
+        if newCoverage != coverage { coverage = newCoverage }
+        let newHint = ScanCoach.hint(covered: covered, distance: distance, tracking: tracking)
+        if newHint != hint { hint = newHint }  // @Published на каждой кадре — лишняя перерисовка
 
         if intrinsics.isEmpty {
             let matrix = frame.camera.intrinsics
@@ -130,7 +141,18 @@ final class AutoScanModel: NSObject, ObservableObject {
             imageSize = frame.camera.imageResolution
         }
 
-        guard autoShoot, shots < ScanCoach.maxShots else { return }
+        guard autoShoot else {
+            if hint != "Автосъёмка выключена — включите тумблер" {
+                hint = "Автосъёмка выключена — включите тумблер"
+            }
+            return
+        }
+        guard shots < ScanCoach.maxShots else {
+            if hint != "Лимит \(ScanCoach.maxShots) кадров — жмите «Собрать 3D»" {
+                hint = "Лимит \(ScanCoach.maxShots) кадров — жмите «Собрать 3D»"
+            }
+            return
+        }
         guard distance >= ScanCoach.minDistance, distance <= ScanCoach.maxDistance else { return }
 
         let direction = ScanCoach.normalized(cameraPosition - center)
@@ -141,6 +163,11 @@ final class AutoScanModel: NSObject, ObservableObject {
         guard Date().timeIntervalSince(lastShotAt) >= ScanCoach.minInterval else { return }
 
         if capture(frame: frame, cameraPosition: cameraPosition, session: session) {
+            // Покрытие считаем по ФАКТИЧЕСКИ снятым кадрам: иначе кольцо доходило
+            // до 100 %, а верхних ракурсов в папке не было.
+            ScanCoach.markCovered(&covered, camera: cameraPosition, center: center)
+            coverage = ScanCoach.coverage(covered)
+            hint = ScanCoach.hint(covered: covered, distance: distance, tracking: tracking)
             lastShotAt = Date()
             lastDirection = direction
             shots += 1

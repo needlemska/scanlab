@@ -96,12 +96,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ios.ps1 pull        
 ## 7. Тесты без телефона
 
 ```powershell
-.\tools\tests\...                            # Python: калибровка, масштаб, меш
-& $py -m pytest tools\tests -q               # если стоит pytest
+$py = "C:\Users\lenov\AppData\Local\Programs\Python\Python310\python.exe"
+$env:PYTHONIOENCODING = "utf-8"
+& $py tools\tests\test_calibration.py         # 23 проверки: калибровка, масштаб, стол, images.txt
 ```
 
+Последний замер (12.11.2026): `все 23 проверки ok` за ~1 с, Python 3.10.11, numpy 2.2.6.
+
 Swift-логика (`Core/ScanCoach.swift` и т.п.) локально не собирается — на этом стенде нет
-Swift-тулчейна. Её компиляцию и проверки подтверждает только CI-прогон.
+Swift-тулчейна. Её компиляцию и проверки подтверждает только CI-прогон (`check`).
+Перед пушем полезен дешёвый гейт на грубые ошибки правок: баланс скобок в Swift-файлах
+(`.scratch/check_braces.py` в рабочей папке стенда, 13 файлов).
 
 ## 7б. Симулятор iOS (единственный «эмулятор», доступный с Windows)
 

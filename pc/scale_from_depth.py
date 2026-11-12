@@ -21,120 +21,12 @@ import sys
 
 import numpy as np
 
+from sfm_io import Camera, quat_to_rot, read_cameras_txt, read_images_txt, read_points3D_txt
+
 MIN_PAIRS = 20
 SCALE_LIMITS = (0.02, 50.0)
 MAX_DEPTH_M = 8.0
 MIN_DEPTH_M = 0.05
-
-
-class Camera:
-    __slots__ = ("fx", "fy", "cx", "cy", "k1", "k2", "p1", "p2", "width", "height")
-
-    def __init__(self, fx, fy, cx, cy, k1=0.0, k2=0.0, p1=0.0, p2=0.0, width=0, height=0):
-        self.fx, self.fy, self.cx, self.cy = fx, fy, cx, cy
-        self.k1, self.k2, self.p1, self.p2 = k1, k2, p1, p2
-        self.width, self.height = width, height
-
-    def project(self, x: float, y: float, z: float) -> tuple[float, float]:
-        """Точка в камере -> пиксель, с учётом радиальной и тангенциальной дисторсии."""
-        xn, yn = x / z, y / z
-        r2 = xn * xn + yn * yn
-        radial = 1.0 + self.k1 * r2 + self.k2 * r2 * r2
-        xd = xn * radial + 2.0 * self.p1 * xn * yn + self.p2 * (r2 + 2.0 * xn * xn)
-        yd = yn * radial + 2.0 * self.p2 * xn * yn + self.p1 * (r2 + 2.0 * yn * yn)
-        return self.fx * xd + self.cx, self.fy * yd + self.cy
-
-
-def read_cameras_txt(path: str) -> dict[int, Camera]:
-    cameras: dict[int, Camera] = {}
-    with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            camera_id, model, width, height = int(parts[0]), parts[1], int(parts[2]), int(parts[3])
-            params = [float(value) for value in parts[4:]]
-            if model in ("SIMPLE_PINHOLE",):
-                fx = fy = params[0]
-                cx, cy = params[1], params[2]
-            elif model in ("PINHOLE",):
-                fx, fy, cx, cy = params[0], params[1], params[2], params[3]
-            elif model in ("SIMPLE_RADIAL",):
-                fx = fy = params[0]
-                cx, cy = params[1], params[2]
-            elif model in ("RADIAL",):
-                fx = fy = params[0]
-                cx, cy = params[1], params[2]
-            elif model in ("OPENCV", "OPENCV_FISHEYE", "FULL_OPENCV"):
-                fx, fy, cx, cy = params[0], params[1], params[2], params[3]
-            else:
-                # Незнакомая модель: берём первые четыре параметра как fx, fy, cx, cy.
-                fx, fy, cx, cy = params[0], params[1], params[2], params[3]
-            k1 = params[3] if model == "RADIAL" else (params[4] if len(params) > 4 else 0.0)
-            k2 = params[4] if model == "RADIAL" else (params[5] if len(params) > 5 else 0.0)
-            p1 = params[6] if len(params) > 6 else 0.0
-            p2 = params[7] if len(params) > 7 else 0.0
-            if model in ("SIMPLE_PINHOLE", "PINHOLE", "SIMPLE_RADIAL", "OPENCV", "OPENCV_FISHEYE"):
-                k1, k2, p1, p2 = (0.0, 0.0, 0.0, 0.0) if model in ("SIMPLE_PINHOLE", "PINHOLE") else (
-                    params[4] if len(params) > 4 else 0.0,
-                    params[5] if len(params) > 5 else 0.0,
-                    params[6] if len(params) > 6 else 0.0,
-                    params[7] if len(params) > 7 else 0.0,
-                )
-            cameras[camera_id] = Camera(fx, fy, cx, cy, k1, k2, p1, p2, width, height)
-    return cameras
-
-
-def quat_to_rot(q: np.ndarray) -> np.ndarray:
-    w, x, y, z = q
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-    ])
-
-
-def read_images_txt(path: str) -> dict[int, dict]:
-    """id -> {name, camera_id, R, t}; строки с точками (2D) пропускаем."""
-    images: dict[int, dict] = {}
-    with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if len(parts) < 10:
-                continue  # это строка с 2D-точками (POINTS2D)
-            image_id = int(parts[0])
-            qvec = np.array([float(value) for value in parts[1:5]])
-            tvec = np.array([float(value) for value in parts[5:8]])
-            images[image_id] = {
-                "name": parts[9],
-                "camera_id": int(parts[8]),
-                "R": quat_to_rot(qvec),
-                "t": tvec,
-            }
-    return images
-
-
-def read_points3D_txt(path: str) -> list[dict]:
-    points: list[dict] = []
-    with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if len(parts) < 8:
-                continue
-            xyz = np.array([float(parts[1]), float(parts[2]), float(parts[3])])
-            track = []
-            rest = parts[8:]
-            for index in range(0, len(rest) - 1, 2):
-                track.append((int(rest[index]), int(rest[index + 1])))
-            points.append({"xyz": xyz, "track": track})
-    return points
 
 
 def load_shots(path: str) -> dict[str, dict]:

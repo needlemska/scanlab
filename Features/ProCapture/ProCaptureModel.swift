@@ -17,6 +17,8 @@ final class ProCaptureModel: NSObject, ObservableObject {
     @Published private(set) var status = "Готовим камеру…"
     @Published private(set) var lastArchive: URL?
     @Published var errorText: String?
+    /// Предупреждение «глубина недоступна» — не ошибка: съёмка JPEG идёт дальше.
+    @Published private(set) var depthWarning: String?
 
     @Published var manualExposure = true
     @Published var iso: Float = 100
@@ -74,6 +76,11 @@ final class ProCaptureModel: NSObject, ObservableObject {
     /// на 24 секторах это промах на целый сектор.
     private var pendingYaw: Double = 0
     private var pendingSector = 0
+    /// Жива ли серия. Читается только на `queue` — в отличие от @Published
+    /// isCapturing, у которого есть главный актор.
+    private var burstActive = false
+    /// Сколько кадров заказано на старте: по нему видно, сколько реально снято.
+    private var burstRequested = 0
     private var sessionObservers: [NSObjectProtocol] = []
 
     let shutterChoices: [Double] = [1000, 500, 250, 125, 60, 30, 15, 8, 4, 2, 1]
@@ -131,10 +138,17 @@ final class ProCaptureModel: NSObject, ObservableObject {
         }
     }
 
+    /// Серия ещё идёт: ни stop(), ни завершение не должны оставлять таймер.
+    private var isBurstAlive: Bool {
+        burstActive && remaining > 0
+    }
+
     func stop() {
         tracker.stop()
         queue.async { [weak self] in
             guard let self else { return }
+            let wasCapturing = self.burstActive
+            self.burstActive = false
             self.pendingShot?.cancel()
             self.pendingShot = nil
             self.remaining = 0
@@ -144,6 +158,12 @@ final class ProCaptureModel: NSObject, ObservableObject {
             self.ui {
                 self.isCapturing = false
                 self.isReady = false
+            }
+            // Прерванная серия — это всё ещё набор кадров: дописываем shots.json и
+            // архив, иначе в папке остаются JPEG и .f32 без метаданных, а
+            // pc/scale_from_depth.py ищет именно shots.json.
+            if wasCapturing, self.fileIndex > 0 {
+                self.finishBurst()
             }
         }
     }
@@ -283,7 +303,12 @@ final class ProCaptureModel: NSObject, ObservableObject {
             self.isoRange = isoRange
             self.shutterRange = minShutter...maxShutter
             self.iso = min(max(100, isoRange.lowerBound), isoRange.upperBound)
-            if let depthNote { self.errorText = depthNote }
+            // Отсутствие глубины — не ошибка камеры: в алерте это выглядело как
+            // «Не удалось открыть камеру», хотя съёмка JPEG работает.
+            if let depthNote {
+                self.status = depthNote
+                self.depthWarning = depthNote
+            }
         }
     }
 
@@ -360,7 +385,8 @@ final class ProCaptureModel: NSObject, ObservableObject {
         folder = directory
         fileIndex = 0
         photoExtension = "jpg"
-        remaining = max(1, burstCount)
+        burstRequested = max(1, burstCount)
+        remaining = burstRequested
         shots.removeAll()
         coveredSectors.removeAll()
         if turntableMode { startTracking() }
@@ -370,14 +396,27 @@ final class ProCaptureModel: NSObject, ObservableObject {
 
         queue.async { [weak self] in
             guard let self else { return }
+            self.burstActive = true
             self.applySettingsLocked()
             self.shootNext()
         }
     }
 
     private func shootNext() {
-        guard remaining > 0 else {
+        guard isBurstAlive else {
             finishBurst()
+            return
+        }
+        // Камера могла быть отобрана звонком/фоном: без проверки серия
+        // сжигала все слоты на ошибках capturePhoto.
+        guard session.isRunning else {
+            ui {
+                self.errorText = "Камера недоступна: серия остановлена"
+                self.status = "Съёмка прервана"
+                self.isCapturing = false
+            }
+            burstActive = false
+            remaining = 0
             return
         }
         remaining -= 1
@@ -404,6 +443,8 @@ final class ProCaptureModel: NSObject, ObservableObject {
     }
 
     private func finishBurst() {
+        burstActive = false
+        remaining = 0
         guard let folder else {
             ui { self.isCapturing = false }
             return
@@ -421,17 +462,21 @@ final class ProCaptureModel: NSObject, ObservableObject {
         }
 
         let count = fileIndex
+        let requested = burstRequested
         ui {
             self.isCapturing = false
             if zipped {
                 self.lastArchive = archive
+                // Показываем именно «сколько из заказанного»: серия могла быть
+                // прервана звонком, и «Снято 12» при 5 файлах вводило в заблуждение.
+                let tail = count < requested ? " из \(requested)" : ""
                 if self.turntableMode {
-                    self.status = "Снято \(count), секторов \(self.coveredSectors.count)/\(self.sectorsTotal)"
+                    self.status = "Снято \(count)\(tail), секторов \(self.coveredSectors.count)/\(self.sectorsTotal)"
                 } else {
-                    self.status = "Снято \(count) кадров"
+                    self.status = "Снято \(count)\(tail) кадров"
                 }
             } else {
-                self.status = "Кадры сняты, архив не собрался"
+                self.status = "Кадры сняты (\(count)), архив не собрался"
             }
         }
     }
@@ -484,14 +529,16 @@ extension ProCaptureModel: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
-        // Следующий кадр планируем в любом случае: иначе один сбой
-        // (перегрев, занятый буфер) навсегда вешает всю серию.
-        // Следующий кадр планируем в любом случае: иначе один сбой
-        // (перегрев, занятый буфер) навсегда вешает всю серию.
+        // Следующий кадр планируем только если серия ещё жива: stop() отменяет
+        // work item и обнуляет remaining, но без этой проверки делегат ставил
+        // новый таймер и камера продолжала снимать на скрытом экране.
         defer {
             queue.async { [weak self] in
-                guard let self else { return }
-                let work = DispatchWorkItem { [weak self] in self?.shootNext() }
+                guard let self, self.isBurstAlive else { return }
+                let work = DispatchWorkItem { [weak self] in
+                    guard let self, self.isBurstAlive else { return }
+                    self.shootNext()
+                }
                 self.pendingShot?.cancel()
                 self.pendingShot = work
                 self.queue.asyncAfter(deadline: .now() + self.burstInterval, execute: work)
@@ -507,8 +554,10 @@ extension ProCaptureModel: AVCapturePhotoCaptureDelegate {
 
         guard error == nil, let folder else { return }
 
-        fileIndex += 1
-        let base = String(format: "img_%03d", fileIndex)
+        // Номер растёт только после успешной записи: иначе сбой данных «сжигал»
+        // индекс, в папке появлялись дыры img_001, img_003, а «Снято N» врал.
+        let nextIndex = fileIndex + 1
+        let base = String(format: "img_%03d", nextIndex)
         let photoName = base + "." + photoExtension
 
         guard let data = photo.fileDataRepresentation() else {
@@ -521,6 +570,7 @@ extension ProCaptureModel: AVCapturePhotoCaptureDelegate {
             ui { self.status = "Кадр не записался: \(error.localizedDescription)" }
             return
         }
+        fileIndex = nextIndex
 
         var shot: [String: Any] = [
             "file": photoName,
@@ -544,10 +594,17 @@ extension ProCaptureModel: AVCapturePhotoCaptureDelegate {
                     raw.append(Data(bytes: baseAddress.advanced(by: row * bytesPerRow),
                                     count: width * 4))
                 }
-                try? raw.write(to: folder.appendingPathComponent(base + "_depth.f32"))
-                shot["depthFile"] = base + "_depth.f32"
-                shot["depthSize"] = [width, height]
-                shot["depthAccuracy"] = converted.depthDataAccuracy.rawValue
+                // depthFile пишем только при удачной записи: иначе pc-скрипты
+                // ищут файл, которого нет, и падают на первом же кадре.
+                let depthName = base + "_depth.f32"
+                do {
+                    try raw.write(to: folder.appendingPathComponent(depthName), options: .atomic)
+                    shot["depthFile"] = depthName
+                    shot["depthSize"] = [width, height]
+                    shot["depthAccuracy"] = converted.depthDataAccuracy.rawValue
+                } catch {
+                    shot["depthError"] = error.localizedDescription
+                }
             }
         }
 

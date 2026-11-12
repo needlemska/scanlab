@@ -22,7 +22,11 @@ import sys
 from pathlib import Path
 
 DEFAULT_UDID = "00008130-000A44C01443001C"
-DEFAULT_BUNDLE = "com.scanlab.app.3CB3DRNXR2"
+# project.yml собирает com.scanlab.app, но Sideloadly ставит копию под
+# альтернативным id (свой суффикс команды), и на телефоне живёт именно она.
+# Поэтому ниже перебираем варианты, а не полагаемся на одно имя.
+DEFAULT_BUNDLE = "com.scanlab.app"
+SIDELOADLY_TEAM = "3CB3DRNXR2"
 SIDELOADLY_DB = Path(os.environ.get("LOCALAPPDATA", "")) / "Sideloadly" / "installations.db"
 
 
@@ -49,20 +53,38 @@ def device_info(udid: str) -> dict:
     return info
 
 
-def app_info(udid: str, bundle: str) -> dict | None:
+def candidate_bundles(bundle: str) -> list[str]:
+    """Имя из project.yml плюс вариант, под которым ставит Sideloadly."""
+    names = [bundle]
+    if not bundle.endswith("." + SIDELOADLY_TEAM):
+        names.append(f"{bundle}.{SIDELOADLY_TEAM}")
+    return names
+
+
+def app_info(udid: str, bundle: str) -> dict:
+    """Разбирает `apps query`. Возвращает либо данные, либо {"error": …}."""
     code, text = run([sys.executable, "-m", "pymobiledevice3", "apps", "query", bundle, "--udid", udid])
+    if code == 127:
+        return {"error": "pymobiledevice3 не найден"}
+    if code == 124:
+        return {"error": "таймаут запроса приложений"}
     if code != 0:
-        return None
+        # Ненулевой код — это НЕ всегда «не установлено»: бывают таймауты и
+        # отвалившийся USB. Раньше любой код давал «ScanLab не установлен».
+        last = (text.strip().splitlines() or [f"код {code}"])[-1].strip()
+        if "unable to find" in last.lower() or "no such" in last.lower():
+            return {"error": f"не установлено: {last[:180]}", "missing": True}
+        return {"error": f"ошибка запроса: {last[:180]}"}
     try:
         data = json.loads(text[text.index("{"):])
     except (ValueError, KeyError):
-        return None
+        return {"error": "не разобрал ответ pymobiledevice3"}
     app = data.get(bundle) or next(iter(data.values()), None)
     if not isinstance(app, dict):
-        return None
+        return {"error": "в ответе нет приложения", "missing": True}
     ent = app.get("Entitlements") or {}
     return {
-        "bundle": app.get("CFBundleIdentifier"),
+        "bundle": app.get("CFBundleIdentifier") or bundle,
         "version": app.get("CFBundleShortVersionString"),
         "build": app.get("CFBundleVersion"),
         "name": app.get("CFBundleDisplayName"),
@@ -108,11 +130,25 @@ def profile_info(db_path: Path) -> dict | None:
 
 def collect(udid: str, bundle: str) -> dict:
     dev = device_info(udid)
+    app = None
+    errors: list[str] = []
+    if dev["connected"]:
+        for name in candidate_bundles(bundle):
+            found = app_info(udid, name)
+            if "error" not in found:
+                app = found
+                bundle = name
+                break
+            if not found.get("missing"):
+                errors.append(f"{name}: {found['error']}")
+        else:
+            # Все варианты «не установлено» либо запросы падали — показать причину.
+            app = {"error": "; ".join(errors) if errors else "не установлено", "missing": not errors}
     return {
         "udid": udid,
         "bundle": bundle,
         "device": dev,
-        "app": app_info(udid, bundle) if dev["connected"] else None,
+        "app": app,
         "profile": profile_info(SIDELOADLY_DB),
     }
 
@@ -124,6 +160,10 @@ def verdict(state: dict) -> tuple[str, str]:
     app = state.get("app")
     if not app:
         return "ScanLab не установлен", "подписать и установить IPA через Sideloadly"
+    if app.get("error"):
+        if app.get("missing"):
+            return "ScanLab не установлен", "подписать и установить IPA через Sideloadly"
+        return f"не удалось узнать состояние: {app['error']}", "проверить USB, Apple Mobile Device Service и повторить"
     prof = state.get("profile") or {}
     if prof.get("expired"):
         return (
@@ -164,7 +204,11 @@ def main() -> int:
         print("            " + dev["raw"])
 
     app = state.get("app")
-    if app:
+    if not dev["connected"]:
+        pass  # без телефона спрашивать нечего: вердикт уже сказал, что делать
+    elif app and app.get("error"):
+        print(f"Приложение: {app['error']}")
+    elif app:
         print(f"Приложение: {app['name']} — {app['version']} (build {app['build']})")
         print(f"            {app['path']}")
         print(f"Подпись   : команда {app['team']}, get-task-allow={app['get_task_allow']}")

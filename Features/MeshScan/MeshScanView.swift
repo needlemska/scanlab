@@ -32,6 +32,9 @@ struct MeshScanView: View {
         } message: {
             Text(scan.errorText ?? "")
         }
+        // ARSession живёт отдельно от UIView: при уходе на другую вкладку камера
+        // остаётся занятой ARKit, и «Фото» не может открыть свой AVCaptureSession.
+        .onDisappear { scan.stop() }
     }
 
     private var errorBinding: Binding<Bool> {
@@ -264,9 +267,16 @@ struct MeshScanView: View {
 
             HStack(spacing: 10) {
                 Button {
-                    scan.isScanning ? scan.stop() : scan.start()
+                    if scan.isScanning {
+                        scan.stop()
+                    } else if scan.anchorCount > 0 {
+                        // после «Паузы» продолжаем ту же сцену, а не начинаем новую
+                        scan.resume()
+                    } else {
+                        scan.start()
+                    }
                 } label: {
-                    Label(scan.isScanning ? "Пауза" : "Старт",
+                    Label(scan.isScanning ? "Пауза" : (scan.anchorCount > 0 ? "Продолжить" : "Старт"),
                           systemImage: scan.isScanning ? "pause.fill" : "play.fill")
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)

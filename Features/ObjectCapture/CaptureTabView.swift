@@ -133,6 +133,15 @@ final class CaptureSessionModel: ObservableObject {
         message = "Сканирование отменено"
     }
 
+    /// Уходим с экрана: гасим подписки и отдаём камеру. Незавершённый скан
+    /// отменяем (сессию нельзя «поставить на паузу навсегда»), завершённый
+    /// оставляем как есть — его кадры уже на диске.
+    func shutdown() {
+        stopWatching()
+        guard folder != nil, !isCompleted, !hasFailed else { return }
+        session.cancel()
+    }
+
     /// Автозапуск определения объекта, как только сессия готова.
     /// Без этого экран «3D» висел на «Готовлю камеру…» и кнопка съёмки не появлялась.
     private func requestDetection() {
@@ -260,15 +269,28 @@ struct CaptureTabView: View {
                 }
 
                 if model.isCompleted {
-                    Button {
-                        guard let folder = model.folder else { return }
-                        Task { await photogram.run(folder: folder) }
-                    } label: {
-                        Label("Собрать 3D", systemImage: "cube.transparent")
-                            .frame(maxWidth: .infinity)
+                    HStack(spacing: 10) {
+                        Button {
+                            guard let folder = model.folder else { return }
+                            Task { await photogram.run(folder: folder) }
+                        } label: {
+                            Label("Собрать 3D", systemImage: "cube.transparent")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(photogram.isRunning)
+
+                        // Раньше после .completed экран оставался без выхода,
+                        // кроме перезапуска приложения: теперь сразу новый скан.
+                        Button {
+                            photogram.reset()
+                            model.restart()
+                        } label: {
+                            Label("Новый", systemImage: "plus")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(photogram.isRunning)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(photogram.isRunning)
                 }
 
                 controls
@@ -279,6 +301,7 @@ struct CaptureTabView: View {
             .padding(.bottom, 8)
         }
         .task { model.start() }
+        .onDisappear { model.shutdown() }
     }
 
     @ViewBuilder
